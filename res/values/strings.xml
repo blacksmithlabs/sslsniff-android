@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">sslsniff Android</string>
+
+    <string name="working">Working...</string>
+    <string name="reading_apps">Reading installed applications</string>
+    <string name="toast_bin_installed">sslsniff: Binary files installed!</string>
+</resources>

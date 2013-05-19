@@ -1,0 +1,17 @@
+diff --git a/external/iptables/xtables.c b/external/iptables/xtables.c
+index 47a0d9c..c5558c1 100644
+--- a/external/iptables/xtables.c
++++ b/external/iptables/xtables.c
+@@ -971,7 +971,11 @@ static const char *ipaddr_to_host(const struct in_addr *addr)
+ {
+ 	struct hostent *host;
+ 
+-	host = gethostbyaddr(addr, sizeof(struct in_addr), AF_INET);
++	const char *ipaddr = inet_ntoa(*addr);
++	if (ipaddr == NULL)
++		return NULL;
++
++	host = gethostbyaddr(ipaddr, strlen(ipaddr), AF_INET);
+ 	if (host == NULL)
+ 		return NULL;
+ 
