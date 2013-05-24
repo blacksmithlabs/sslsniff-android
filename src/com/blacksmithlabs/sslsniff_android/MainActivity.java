@@ -13,14 +13,13 @@ import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.*;
 
-import java.nio.channels.AsynchronousCloseException;
 import java.util.Arrays;
 import java.util.Comparator;
 
 /**
  * Created by brian on 5/17/13.
  */
-public class MainActivity extends Activity implements CompoundButton.OnCheckedChangeListener, View.OnClickListener {
+public class MainActivity extends Activity implements AdapterView.OnItemClickListener, AdapterView.OnItemLongClickListener {
 
 	private ListView listview = null;
 
@@ -42,6 +41,8 @@ public class MainActivity extends Activity implements CompoundButton.OnCheckedCh
 		super.onResume();
 		if (this.listview == null) {
 			this.listview = (ListView) this.findViewById(R.id.listview);
+			this.listview.setOnItemClickListener(this);
+			this.listview.setOnItemLongClickListener(this);
 		}
 
 		refreshHeader();
@@ -56,6 +57,19 @@ public class MainActivity extends Activity implements CompoundButton.OnCheckedCh
 
 	private void refreshHeader() {
 		// TODO determine if running and update mode accordingly
+	}
+
+	@Override
+	public void onItemClick(AdapterView<?> adapterView, View view, int i, long l) {
+		view.setSelected(true);
+
+		ListEntry entry = (ListEntry)view.getTag();
+		Log.e("sslsniff-android", "Item Clicked: " + entry.app.toString());
+	}
+
+	@Override
+	public boolean onItemLongClick(AdapterView<?> adapterView, View view, int i, long l) {
+		return false;
 	}
 
 	private void showOrLoadApplications() {
@@ -129,16 +143,6 @@ public class MainActivity extends Activity implements CompoundButton.OnCheckedCh
 			}
 		};
 		this.listview.setAdapter(adapter);
-	}
-
-	@Override
-	public void onCheckedChanged(CompoundButton compoundButton, boolean b) {
-
-	}
-
-	@Override
-	public void onClick(View view) {
-
 	}
 
 	private static class LoadIconTask extends AsyncTask<Object, Void, View> {
