@@ -20,6 +20,7 @@ obj/
 gen/
 out/
 .idea
+*.iml
 
 # iptables autogen files
 external/iptables/extensions/gen_initext4.c
