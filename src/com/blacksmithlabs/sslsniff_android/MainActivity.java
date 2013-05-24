@@ -4,6 +4,10 @@ import android.app.Activity;
 import android.app.ProgressDialog;
 import android.content.pm.PackageManager;
 import android.content.res.Resources;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.ColorFilter;
+import android.graphics.drawable.Drawable;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.util.Log;
@@ -109,10 +113,8 @@ public class MainActivity extends Activity implements CompoundButton.OnCheckedCh
 					convertView = inflater.inflate(R.layout.listitem, parent, false);
 					Log.d("sslsniff-android", ">> inflate(" + convertView + ")");
 					entry = new ListEntry();
-					entry.checked = (CheckBox)convertView.findViewById(R.id.itemcheck);
 					entry.text = (TextView)convertView.findViewById(R.id.itemtext);
 					entry.icon = (ImageView)convertView.findViewById(R.id.itemicon);
-					entry.checked.setOnCheckedChangeListener(MainActivity.this);
                     convertView.setTag(entry);
 				}
 
@@ -125,9 +127,17 @@ public class MainActivity extends Activity implements CompoundButton.OnCheckedCh
 					new LoadIconTask().execute(app, getPackageManager(), convertView);
 				}
 
-				final CheckBox checked = entry.checked;
-				checked.setTag(app);
-				checked.setChecked(app.selected);
+				convertView.setSelected(app.selected);
+
+				/*
+				if (app.selected) {
+					convertView.setBackgroundColor(Color.LTGRAY);
+					entry.text.setTextColor(Color.DKGRAY);
+				} else {
+					convertView.setBackgroundColor(Color.DKGRAY);
+					entry.text.setTextColor(Color.LTGRAY);
+				}
+				*/
 
 				return convertView;
 			}
@@ -181,7 +191,6 @@ public class MainActivity extends Activity implements CompoundButton.OnCheckedCh
 	 * Entry representing an application in the screen
 	 */
 	private static class ListEntry {
-		private CheckBox checked;
 		private TextView text;
 		private ImageView icon;
 		private Api.DroidApp app;

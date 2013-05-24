@@ -25,7 +25,7 @@ public class Api {
 
     // Preference constants
     public static final String PREFS_NAME = "sslsniffPrefs";
-    public static final String PREF_SELECTED_UIDS = "SelectedUids";
+	public static final String PREF_SELECTED_UID = "SelectedUid";
 
 	// Cached applications
 	public static DroidApp applications[] = null;
@@ -123,20 +123,14 @@ public class Api {
 
 		final SharedPreferences prefs = ctx.getSharedPreferences(PREFS_NAME, 0);
         // Allowed application names separated by pipe '|' (persisted)
-        final String savedUids = prefs.getString(PREF_SELECTED_UIDS, "");
+        final String savedUid = prefs.getString(PREF_SELECTED_UID, "");
         final HashSet<Integer> selected = new HashSet<Integer>();
-        if (!savedUids.isEmpty()) {
-            final StringTokenizer tok = new StringTokenizer(savedUids, "|", false);
-            while (tok.hasMoreTokens()) {
-                final String uid = tok.nextToken();
-                if (!uid.isEmpty()) {
-                    try {
-                        selected.add(Integer.parseInt(uid));
-                    } catch (Exception ex) {
-                        // That didn't work...
-                    }
-                }
-            }
+        if (!savedUid.isEmpty()) {
+	        try {
+	            selected.add(Integer.parseInt(savedUid));
+	        } catch (Exception ex) {
+		        // That didn't work...
+	        }
         }
         try {
             final PackageManager pkgManager = ctx.getPackageManager();
@@ -224,10 +218,10 @@ public class Api {
 		int uid;
 		/** application names belonging to this user id */
 		String names[];
-		/** indicates if this application is being monitored */
-		boolean selected;
 		/** toString cache */
 		String tostr;
+		/** whether we are monitoring this app or not */
+		boolean selected;
 		/** application info */
 		ApplicationInfo appinfo;
 		/** cached application icon */
