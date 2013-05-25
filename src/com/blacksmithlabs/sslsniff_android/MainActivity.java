@@ -91,27 +91,27 @@ public class MainActivity extends Activity implements AdapterView.OnItemClickLis
 				}
 			}.execute();
 		} else {
-            // Already cached, just show the list
-            showApplications();
-        }
+			// Already cached, just show the list
+			showApplications();
+		}
 	}
 
 	private void showApplications() {
 		final Api.DroidApp[] apps = Api.getApps(this);
 		// Sort applications - selected first, then alphabetical
 		Arrays.sort(apps, new Comparator<Api.DroidApp>() {
-            @Override
-            public int compare(Api.DroidApp o1, Api.DroidApp o2) {
-                if (o1.firstseen != o2.firstseen) {
-                    return (o1.firstseen ? -1 : 1);
-                }
-                if (o1.selected == o2.selected) {
-                    return String.CASE_INSENSITIVE_ORDER.compare(o1.names[0], o2.names[0]);
-                }
-                if (o1.selected)
-                    return -1;
-                return 1;
-            }
+			@Override
+			public int compare(Api.DroidApp o1, Api.DroidApp o2) {
+				if (o1.firstseen != o2.firstseen) {
+					return (o1.firstseen ? -1 : 1);
+				}
+				if (o1.selected == o2.selected) {
+					return String.CASE_INSENSITIVE_ORDER.compare(o1.names[0], o2.names[0]);
+				}
+				if (o1.selected)
+					return -1;
+				return 1;
+			}
 		});
 
 		final LayoutInflater inflater = getLayoutInflater();
@@ -125,7 +125,7 @@ public class MainActivity extends Activity implements AdapterView.OnItemClickLis
 					entry = new ListEntry();
 					entry.text = (TextView)convertView.findViewById(R.id.itemtext);
 					entry.icon = (ImageView)convertView.findViewById(R.id.itemicon);
-                    convertView.setTag(entry);
+					convertView.setTag(entry);
 				}
 
 				final Api.DroidApp app = apps[position];

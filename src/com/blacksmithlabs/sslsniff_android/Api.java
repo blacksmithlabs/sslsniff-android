@@ -20,17 +20,17 @@ import java.util.*;
  */
 public class Api {
 
-    /** root script filename */
-    public static final String SCRIPT_FILE = "sslsniff.sh";
+	/** root script filename */
+	public static final String SCRIPT_FILE = "sslsniff.sh";
 
-    // Preference constants
-    public static final String PREFS_NAME = "sslsniffPrefs";
+	// Preference constants
+	public static final String PREFS_NAME = "sslsniffPrefs";
 	public static final String PREF_SELECTED_UID = "SelectedUid";
 
 	// Cached applications
 	public static DroidApp applications[] = null;
-    // Dow we have root access?
-    private static boolean hasroot = false;
+	// Dow we have root access?
+	private static boolean hasroot = false;
 
 	/**
 	 * Copies a raw resource file, given its ID to the given location
@@ -122,92 +122,92 @@ public class Api {
 		}
 
 		final SharedPreferences prefs = ctx.getSharedPreferences(PREFS_NAME, 0);
-        // Allowed application names separated by pipe '|' (persisted)
-        final String savedUid = prefs.getString(PREF_SELECTED_UID, "");
-        final HashSet<Integer> selected = new HashSet<Integer>();
-        if (!savedUid.isEmpty()) {
-	        try {
-	            selected.add(Integer.parseInt(savedUid));
-	        } catch (Exception ex) {
-		        // That didn't work...
-	        }
-        }
-        try {
-            final PackageManager pkgManager = ctx.getPackageManager();
-            final List<ApplicationInfo> installed = pkgManager.getInstalledApplications(0);
-            final HashMap<Integer, DroidApp> map = new HashMap<Integer, DroidApp>();
-            final SharedPreferences.Editor edit = prefs.edit();
+		// Allowed application names separated by pipe '|' (persisted)
+		final String savedUid = prefs.getString(PREF_SELECTED_UID, "");
+		final HashSet<Integer> selected = new HashSet<Integer>();
+		if (!savedUid.isEmpty()) {
+			try {
+				selected.add(Integer.parseInt(savedUid));
+			} catch (Exception ex) {
+				// That didn't work...
+			}
+		}
+		try {
+			final PackageManager pkgManager = ctx.getPackageManager();
+			final List<ApplicationInfo> installed = pkgManager.getInstalledApplications(0);
+			final HashMap<Integer, DroidApp> map = new HashMap<Integer, DroidApp>();
+			final SharedPreferences.Editor edit = prefs.edit();
 
-            boolean changed = false;
-            String name = null;
-            String cachekey = null;
-            DroidApp app = null;
+			boolean changed = false;
+			String name = null;
+			String cachekey = null;
+			DroidApp app = null;
 
-            for (final ApplicationInfo apInfo : installed) {
-                boolean firstseen = false;
-                app = map.get(apInfo.uid);
-                // Filter applications which are not allowed to access the Internet
-                if (app == null && PackageManager.PERMISSION_GRANTED != pkgManager.checkPermission(android.Manifest.permission.INTERNET, apInfo.packageName)) {
-                    continue;
-                }
+			for (final ApplicationInfo apInfo : installed) {
+				boolean firstseen = false;
+				app = map.get(apInfo.uid);
+				// Filter applications which are not allowed to access the Internet
+				if (app == null && PackageManager.PERMISSION_GRANTED != pkgManager.checkPermission(android.Manifest.permission.INTERNET, apInfo.packageName)) {
+					continue;
+				}
 
-                // Try to get the application label from our cache since getApplicationLable is horribly slow
-                cachekey = "cache.label."+apInfo.packageName;
-                name = prefs.getString(cachekey, "");
-                if (name.isEmpty()) {
-                    // Get label and put in cache
-                    name = pkgManager.getApplicationLabel(apInfo).toString();
-                    edit.putString(cachekey, name);
-                    changed = true;
-                    firstseen = true;
-                }
+				// Try to get the application label from our cache since getApplicationLable is horribly slow
+				cachekey = "cache.label."+apInfo.packageName;
+				name = prefs.getString(cachekey, "");
+				if (name.isEmpty()) {
+					// Get label and put in cache
+					name = pkgManager.getApplicationLabel(apInfo).toString();
+					edit.putString(cachekey, name);
+					changed = true;
+					firstseen = true;
+				}
 
-                if (app == null) {
-                    app = new DroidApp();
-                    app.uid = apInfo.uid;
-                    app.names = new String[] { name };
-                    app.appinfo = apInfo;
-                    map.put(apInfo.uid, app);
-                } else {
-                    final String newnames[] = new String[app.names.length + 1];
-                    System.arraycopy(app.names, 0, newnames, 0, app.names.length);
-                    newnames[app.names.length] = name;
-                    app.names = newnames;
-                }
-                app.firstseen = firstseen;
+				if (app == null) {
+					app = new DroidApp();
+					app.uid = apInfo.uid;
+					app.names = new String[] { name };
+					app.appinfo = apInfo;
+					map.put(apInfo.uid, app);
+				} else {
+					final String newnames[] = new String[app.names.length + 1];
+					System.arraycopy(app.names, 0, newnames, 0, app.names.length);
+					newnames[app.names.length] = name;
+					app.names = newnames;
+				}
+				app.firstseen = firstseen;
 
-                // Check if this application is selected
-                if (!app.selected && selected.contains(app.uid)) {
-                    app.selected = true;
-                }
-            }
+				// Check if this application is selected
+				if (!app.selected && selected.contains(app.uid)) {
+					app.selected = true;
+				}
+			}
 
-            if (changed) {
-                edit.commit();
-            }
+			if (changed) {
+				edit.commit();
+			}
 
-            // Add special applications to the list
-            final DroidApp special[] = {
-                    // TODO add in kernel and other apps when we support them
-            };
-            for (int i=0; i<special.length; i++) {
-                app = special[i];
-                if (app.uid != -1 && !map.containsKey(app.uid)) {
-                    // Is it selected?
-                    if (selected.contains(app.uid)) {
-                        app.selected = true;
-                    }
-                    map.put(app.uid, app);
-                }
-            }
+			// Add special applications to the list
+			final DroidApp special[] = {
+					// TODO add in kernel and other apps when we support them
+			};
+			for (int i=0; i<special.length; i++) {
+				app = special[i];
+				if (app.uid != -1 && !map.containsKey(app.uid)) {
+					// Is it selected?
+					if (selected.contains(app.uid)) {
+						app.selected = true;
+					}
+					map.put(app.uid, app);
+				}
+			}
 
-            // Convert the map into an array
-            applications = map.values().toArray(new DroidApp[map.size()]);
-            return applications;
-        } catch (Exception ex) {
-            alert(ctx, "error: " + ex);
-        }
-        return null;
+			// Convert the map into an array
+			applications = map.values().toArray(new DroidApp[map.size()]);
+			return applications;
+		} catch (Exception ex) {
+			alert(ctx, "error: " + ex);
+		}
+		return null;
 	}
 
 	/**
