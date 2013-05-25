@@ -9,10 +9,7 @@ import android.graphics.drawable.Drawable;
 import android.util.Log;
 import android.widget.Toast;
 
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
 import java.util.*;
 
 /**
@@ -58,6 +55,103 @@ public class Api {
 	}
 
 	/**
+	 * Create the generic shell script header used to determine which iptables binary to use.
+	 * @param ctx context
+	 * @return script header
+	 */
+	private static String scriptHeader(Context ctx) {
+		final String dir = ctx.getDir("bin",0).getAbsolutePath();
+		final String myiptables = dir + "/iptables_armv7";
+		final String mysslsniff = dir + "/sslsniff_armv7";
+		return "" +
+				"IPTABLES=iptables\n" +
+				"BUSYBOX=busybox\n" +
+				"GREP=grep\n" +
+				"ECHO=echo\n" +
+				"# Try to find busybox\n" +
+				"if " + dir + "/busybox_g1 --help >/dev/null 2>/dev/null ; then\n" +
+				"	BUSYBOX="+dir+"/busybox_g1\n" +
+				"	GREP=\"$BUSYBOX grep\"\n" +
+				"	ECHO=\"$BUSYBOX echo\"\n" +
+				"elif busybox --help >/dev/null 2>/dev/null ; then\n" +
+				"	BUSYBOX=busybox\n" +
+				"elif /system/xbin/busybox --help >/dev/null 2>/dev/null ; then\n" +
+				"	BUSYBOX=/system/xbin/busybox\n" +
+				"elif /system/bin/busybox --help >/dev/null 2>/dev/null ; then\n" +
+				"	BUSYBOX=/system/bin/busybox\n" +
+				"fi\n" +
+				"# Try to find grep\n" +
+				"if ! $ECHO 1 | $GREP -q 1 >/dev/null 2>/dev/null ; then\n" +
+				"	if $ECHO 1 | $BUSYBOX grep -q 1 >/dev/null 2>/dev/null ; then\n" +
+				"		GREP=\"$BUSYBOX grep\"\n" +
+				"	fi\n" +
+				"	# Grep is absolutely required\n" +
+				"	if ! $ECHO 1 | $GREP -q 1 >/dev/null 2>/dev/null ; then\n" +
+				"		$ECHO The grep command is required. DroidWall will not work.\n" +
+				"		exit 1\n" +
+				"	fi\n" +
+				"fi\n" +
+				"# Try to find iptables\n" +
+				"if " + myiptables + " --version >/dev/null 2>/dev/null ; then\n" +
+				"	IPTABLES="+myiptables+"\n" +
+				"fi\n" +
+				"# Try to find sslsniff\n" +
+				"if " + mysslsniff + " --help >/dev/null 2>/dev/null; then \n" +
+				"    SSLSNIFF="+mysslsniff+"\n" +
+				"fi\n" +
+				"";
+	}
+
+	/**
+	 * Get the pid of the sslsniff app that we've been running
+	 * @param ctx context
+	 * @return The PID. Empty string if not found.
+	 */
+	private static String getSnifferPID(Context ctx) {
+		String pid = "";
+
+		final File pidFile = new File(ctx.getDir("run",Context.MODE_PRIVATE), "sslsniff_armv7.pid");
+		if (pidFile.exists() && pidFile.length() > 0) {
+			try {
+				BufferedReader reader = new BufferedReader(new FileReader(pidFile));
+				pid = reader.readLine().trim();
+			} catch (Exception ex) {
+				// Well, dang...
+			}
+		}
+
+		return pid;
+	}
+
+	/**
+	 * Get whether we are actively recording traffic or not
+	 * @param ctx context
+	 * @return boolean if we are or not
+	 */
+	public static boolean isEnabled(Context ctx) {
+		final String pid = getSnifferPID(ctx);
+
+		if (!pid.isEmpty()) {
+			final StringBuilder script = new StringBuilder();
+			try {
+				script.append(scriptHeader(ctx));
+				script.append("ps ").append(pid).append(" | $GREP ").append(pid);
+
+				final StringBuilder result = new StringBuilder();
+				int code = runScript(ctx, script.toString(), result);
+				if (code == 0) {
+					return true;
+				}
+				return !result.toString().isEmpty();
+			} catch (Exception e) {
+				// Well, that sucks
+			}
+		}
+
+		return false;
+	}
+
+	/**
 	 * Displays a simple alert box
 	 * @param ctx context
 	 * @param msg message
@@ -69,6 +163,97 @@ public class Api {
 					.setMessage(msg)
 					.show();
 		}
+	}
+
+	/**
+	 * Check if we have root access
+	 * @param ctx mandatory context
+	 * @param showErrors indicates if errors should be alerted
+	 * @return boolean true if we have root
+	 */
+	public static boolean hasRootAccess(final Context ctx, boolean showErrors) {
+		if (hasroot) return true;
+		final StringBuilder res = new StringBuilder();
+		try {
+			// Run an empty script just to check root access
+			if (runScriptAsRoot(ctx, "exit 0", res) == 0) {
+				hasroot = true;
+				return true;
+			}
+		} catch (Exception e) {
+		}
+		if (showErrors) {
+			alert(ctx, "Could not acquire root access.\n" +
+					"You need a rooted phone to use sslsniff.\n\n" +
+					"If this phone is already rooted, please make sure sslsniff has enough permissions to execute the \"su\" command.\n" +
+					"Error message: " + res.toString());
+		}
+		return false;
+	}
+
+	/**
+	 * Runs a script, wither as root or as a regular user (multiple commands separated by "\n").
+	 * @param ctx mandatory context
+	 * @param script the script to be executed
+	 * @param res the script output response (stdout + stderr)
+	 * @param timeout timeout in milliseconds (-1 for none)
+	 * @return the script exit code
+	 */
+	public static int runScript(Context ctx, String script, StringBuilder res, long timeout, boolean asroot) {
+		final File file = new File(ctx.getDir("bin",0), SCRIPT_FILE);
+		final ScriptRunner runner = new ScriptRunner(file, script, res, asroot);
+		runner.start();
+
+		try {
+			if (timeout > 0) {
+				runner.join(timeout);
+			} else {
+				runner.join();
+			}
+			if (runner.isAlive()) {
+				// Timed-out
+				runner.interrupt();
+				runner.join(150);
+				runner.destroy();
+				runner.join(50);
+			}
+		} catch (InterruptedException ex) {
+		}
+
+		return runner.exitcode;
+	}
+	/**
+	 * Runs a script as root (multiple commands separated by "\n").
+	 * @param ctx mandatory context
+	 * @param script the script to be executed
+	 * @param res the script output response (stdout + stderr)
+	 * @param timeout timeout in milliseconds (-1 for none)
+	 * @return the script exit code
+	 */
+	public static int runScriptAsRoot(Context ctx, String script, StringBuilder res, long timeout) {
+		return runScript(ctx, script, res, timeout, true);
+	}
+	/**
+	 * Runs a script as root (multiple commands separated by "\n") with a default timeout of 20 seconds.
+	 * @param ctx mandatory context
+	 * @param script the script to be executed
+	 * @param res the script output response (stdout + stderr)
+	 * @return the script exit code
+	 * @throws IOException on any error executing the script, or writing it to disk
+	 */
+	public static int runScriptAsRoot(Context ctx, String script, StringBuilder res) throws IOException {
+		return runScriptAsRoot(ctx, script, res, 40000);
+	}
+	/**
+	 * Runs a script as a regular user (multiple commands separated by "\n") with a default timeout of 20 seconds.
+	 * @param ctx mandatory context
+	 * @param script the script to be executed
+	 * @param res the script output response (stdout + stderr)
+	 * @return the script exit code
+	 * @throws IOException on any error executing the script, or writing it to disk
+	 */
+	public static int runScript(Context ctx, String script, StringBuilder res) throws IOException {
+		return runScript(ctx, script, res, 40000, false);
 	}
 
 	/**
@@ -190,14 +375,13 @@ public class Api {
 			final DroidApp special[] = {
 					// TODO add in kernel and other apps when we support them
 			};
-			for (int i=0; i<special.length; i++) {
-				app = special[i];
-				if (app.uid != -1 && !map.containsKey(app.uid)) {
+			for (DroidApp dapp : special) {
+				if (dapp.uid != -1 && !map.containsKey(dapp.uid)) {
 					// Is it selected?
-					if (selected.contains(app.uid)) {
-						app.selected = true;
+					if (selected.contains(dapp.uid)) {
+						dapp.selected = true;
 					}
-					map.put(app.uid, app);
+					map.put(dapp.uid, dapp);
 				}
 			}
 
@@ -245,7 +429,7 @@ public class Api {
 		public String toString() {
 			if (tostr == null) {
 				final StringBuilder s = new StringBuilder();
-				if (uid > 0) s.append(uid + ": ");
+				if (uid > 0) s.append(uid).append(": ");
 				for (int i=0; i<names.length; i++) {
 					if (i != 0) s.append(", ");
 					s.append(names[i]);
@@ -254,6 +438,110 @@ public class Api {
 				tostr = s.toString();
 			}
 			return tostr;
+		}
+	}
+
+	/**
+	 * Internal thread used to execute scripts (as root or not).
+	 */
+	private static final class ScriptRunner extends Thread {
+		private final File file;
+		private final String script;
+		private final StringBuilder res;
+		private final boolean asroot;
+		public int exitcode = -1;
+		private Process exec;
+
+		/**
+		 * Creates a new script runner.
+		 * @param file temporary script file
+		 * @param script script to run
+		 * @param res response output
+		 * @param asroot if true, executes the script as root
+		 */
+		public ScriptRunner(File file, String script, StringBuilder res, boolean asroot) {
+			this.file = file;
+			this.script = script;
+			this.res = res;
+			this.asroot = asroot;
+		}
+		@Override
+		public void run() {
+			try {
+				file.createNewFile();
+				final String abspath = file.getAbsolutePath();
+				// make sure we have execution permission on the script file
+				Runtime.getRuntime().exec("chmod 777 "+abspath).waitFor();
+				// Write the script to be executed
+				final OutputStreamWriter out = new OutputStreamWriter(new FileOutputStream(file));
+				if (new File("/system/bin/sh").exists()) {
+					out.write("#!/system/bin/sh\n");
+				}
+				out.write(script);
+				if (!script.endsWith("\n")) {
+					out.write("\n");
+				}
+				out.write("exit\n");
+				out.flush();
+				out.close();
+				if (this.asroot) {
+					// Create the "su" request to run the script
+					exec = Runtime.getRuntime().exec("su -c "+abspath);
+				} else {
+					// Create the "sh" request to run the script
+					exec = Runtime.getRuntime().exec("sh "+abspath);
+				}
+				final InputStream stdout = exec.getInputStream();
+				final InputStream stderr = exec.getErrorStream();
+				final byte buf[] = new byte[8192];
+				int read = 0;
+				while (true) {
+					final Process localexec = exec;
+					if (localexec == null) {
+						break;
+					}
+					try {
+						// get the process exit code - will raise IllegalThreadStateException if still running
+						this.exitcode = localexec.exitValue();
+					} catch (IllegalThreadStateException ex) {
+						// The process is still running
+					}
+					// Read stdout
+					if (stdout.available() > 0) {
+						read = stdout.read(buf);
+						if (res != null)
+							res.append(new String(buf, 0, read));
+					}
+					// Read stderr
+					if (stderr.available() > 0) {
+						read = stderr.read(buf);
+						if (res != null)
+							res.append(new String(buf, 0, read));
+					}
+					if (this.exitcode != -1) {
+						// finished
+						break;
+					}
+					// Sleep for the next round
+					Thread.sleep(50);
+				}
+			} catch (InterruptedException ex) {
+				if (res != null)
+					res.append("\nOperation timed-out");
+			} catch (Exception ex) {
+				if (res != null)
+					res.append("\n" + ex);
+			} finally {
+				destroy();
+			}
+		}
+		/**
+		 * Destroy this script runner
+		 */
+		public synchronized void destroy() {
+			if (exec != null)
+				exec.destroy();
+			exec = null;
 		}
 	}
 }

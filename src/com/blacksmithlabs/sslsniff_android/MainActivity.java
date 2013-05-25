@@ -63,12 +63,15 @@ public class MainActivity extends Activity implements AdapterView.OnItemClickLis
 	public void onItemClick(AdapterView<?> adapterView, View view, int i, long l) {
 		view.setSelected(true);
 
+		// TODO launch the log activity with the default options
+
 		ListEntry entry = (ListEntry)view.getTag();
 		Log.e("sslsniff-android", "Item Clicked: " + entry.app.toString());
 	}
 
 	@Override
 	public boolean onItemLongClick(AdapterView<?> adapterView, View view, int i, long l) {
+		// TODO show advanced sniffing options
 		return false;
 	}
 
