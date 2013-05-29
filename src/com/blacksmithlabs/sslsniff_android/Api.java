@@ -6,6 +6,8 @@ import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.graphics.drawable.Drawable;
+import android.os.Parcel;
+import android.os.Parcelable;
 import android.util.Log;
 import android.widget.Toast;
 
@@ -23,6 +25,10 @@ public class Api {
 	// Preference constants
 	public static final String PREFS_NAME = "sslsniffPrefs";
 	public static final String PREF_SELECTED_UID = "SelectedUid";
+	public static final String PREF_SNIFF_PORTS = "SniffPorts";
+	public static final String PREF_LOG_FILE = "LogFile";
+	public static final String PREF_CERT_INFO = "CertInfo";
+	public static final String PREF_SNIFF_MODE = "SniffMode";
 
 	// Cached applications
 	public static DroidApp applications[] = null;
@@ -63,8 +69,7 @@ public class Api {
 		final String dir = ctx.getDir("bin",0).getAbsolutePath();
 		final String myiptables = dir + "/iptables_armv7";
 		final String mysslsniff = dir + "/sslsniff_armv7";
-		return "" +
-				"IPTABLES=iptables\n" +
+		return  "IPTABLES=iptables\n" +
 				"BUSYBOX=busybox\n" +
 				"GREP=grep\n" +
 				"ECHO=echo\n" +
@@ -99,7 +104,7 @@ public class Api {
 				"if " + mysslsniff + " --help >/dev/null 2>/dev/null; then \n" +
 				"    SSLSNIFF="+mysslsniff+"\n" +
 				"fi\n" +
-				"";
+				"\n";
 	}
 
 	/**
@@ -149,6 +154,82 @@ public class Api {
 		}
 
 		return false;
+	}
+
+	/**
+	 * Save the log options to the preferences
+	 * @param ctx
+	 * @param options
+	 */
+	public static void saveLogOptions(Context ctx, LogActivity.LogOptions options) {
+		final SharedPreferences prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+		final SharedPreferences.Editor edit = prefs.edit();
+
+		// Use a string so that we can transparently move to monitoring multiple apps in the future
+		edit.putString(PREF_SELECTED_UID, Integer.toString(options.app.uid));
+		edit.putString(PREF_SNIFF_PORTS, Arrays.asList(options.ports).toString());
+		edit.putString(PREF_LOG_FILE, options.logFile);
+		edit.putString(PREF_CERT_INFO, options.certInfo);
+		edit.putString(PREF_SNIFF_MODE, options.mode.name());
+		edit.commit();
+	}
+
+	/**
+	 * Restore the log options from the preferences
+	 * @param ctx
+	 * @return
+	 */
+	public static LogActivity.LogOptions restoreLogOptions(Context ctx) {
+		LogActivity.LogOptions options = new LogActivity.LogOptions();
+
+		final SharedPreferences prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+		String strUid = prefs.getString(PREF_SELECTED_UID, "");
+		if (!strUid.isEmpty()) {
+			try {
+				final int uid = Integer.parseInt(strUid);
+				// Get the actual app associated with the uid
+				for (DroidApp app : getApps(ctx)) {
+					if (app.uid == uid) {
+						options.app = app;
+						break;
+					}
+				}
+
+				// Only if we found the app
+				if (options.app != null) {
+					options.logFile = prefs.getString(PREF_LOG_FILE, "");
+					options.certInfo = prefs.getString(PREF_CERT_INFO, "");
+					options.mode = LogActivity.SniffMode.valueOf(prefs.getString(PREF_SNIFF_MODE, LogActivity.SniffMode.AUTHORITY.name()));
+
+					final String savedPorts = prefs.getString(PREF_SNIFF_PORTS, "");
+					final List<Integer> ports = new LinkedList<Integer>();
+					if (!savedPorts.isEmpty()) {
+						// retrieve the ports
+						final StringTokenizer tok = new StringTokenizer(savedPorts, "|");
+						while (tok.hasMoreTokens()) {
+							final String port = tok.nextToken();
+							if (!port.isEmpty()) {
+								try {
+									ports.add(Integer.parseInt(port));
+								} catch (Exception ex) {
+									// Just skip it
+								}
+							}
+						}
+					}
+
+					options.ports = new int[ports.size()];
+					int loc = 0;
+					for (Integer port : ports) {
+						options.ports[loc++] = port;
+					}
+				}
+			} catch (Exception ex) {
+				// Oh well...
+			}
+		}
+
+		return options;
 	}
 
 	/**
@@ -296,6 +377,69 @@ public class Api {
 	}
 
 	/**
+	 * Purge and re-add all the rules (internal implementation)
+	 * @param ctx application context
+	 * @param options the options for our logging
+	 * @param showErrors indicates if errors should be altered
+	 * @return if the rules were applied successfully
+	 */
+	public static boolean applyIPTablesRules(Context ctx, LogActivity.LogOptions options, boolean showErrors) {
+		if (ctx == null) {
+			return false;
+		}
+		assertBinaries(ctx, showErrors);
+
+		final StringBuilder script = new StringBuilder();
+		try {
+			script.append(scriptHeader(ctx))
+				.append("$IPTABLES --version || exit 1\n")
+				.append("# Create the sslsniff chains if necessary\n")
+				.append("$IPTABLES -t nat -L sslsniff >/dev/null 2>/dev/null || $IPTABLES -t nat --new sslsniff || exit 2\n")
+				.append("# Add sslsniff chain to OUTPUT chain if necessary\n")
+				.append("$IPTABLES -t nat -L OUTPUT | $GREP -q sslsniff || $IPTABLES -t nat -A OUTPUT -j sslsniff || exit 3\n")
+				.append("\n# Flush existing rules\n\n")
+				.append("$IPTABLES -t nat -F sslsniff || exit 4\n");
+
+			// Filter the desired ports
+			script.append("\n# Filtering rules\n\n");
+			int destinationPort = 8443;
+			for (int port : options.ports) {
+				script.append("$IPTABLES -t nat -A sslsniff -p tcp -j REDIRECT")
+					.append(" -m owner --uid-owner ").append(options.app.appinfo.uid)
+					.append(" --dport ").append(port)
+					.append(" --to-ports ").append(destinationPort)
+					.append(" || exit\n");
+			}
+
+			final StringBuilder res = new StringBuilder();
+			int code = runScriptAsRoot(ctx, script.toString(), res);
+			if (showErrors && code != 0) {
+				String msg = res.toString();
+				Log.e("sslsniff", msg);
+				// Remove unnecessary message from output
+				String[] unhelpfulMsgs = new String[] {
+					"\nTry `iptables -h' or 'iptables --help' for more information.",
+					"\nprotoent* getprotobyname(char const*)(3) is not implemented on Android",
+				};
+				for (String unhelpful : unhelpfulMsgs) {
+					if (msg.indexOf(unhelpful) != -1) {
+						msg = msg.replace(unhelpful, "");
+					}
+				}
+				alert(ctx, "Error applying iptables rules. Exit code: " + code + "\n\n" + msg.trim());
+			} else {
+				return true;
+			}
+
+		} catch (Exception e) {
+			if (showErrors) {
+				alert(ctx, "Error setting up iptables for sslsniff: " + e);
+			}
+		}
+		return false;
+	}
+
+	/**
 	 * Get all the installed application
 	 * @param ctx application context (mandatory)
 	 * @return a list of applications
@@ -306,7 +450,7 @@ public class Api {
 			return applications;
 		}
 
-		final SharedPreferences prefs = ctx.getSharedPreferences(PREFS_NAME, 0);
+		final SharedPreferences prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
 		// Allowed application names separated by pipe '|' (persisted)
 		final String savedUid = prefs.getString(PREF_SELECTED_UID, "");
 		final HashSet<Integer> selected = new HashSet<Integer>();
@@ -397,7 +541,7 @@ public class Api {
 	/**
 	 * Small structure to hold an application info
 	 */
-	public static final class DroidApp {
+	public static final class DroidApp implements Parcelable {
 		/** linux user id */
 		int uid;
 		/** application names belonging to this user id */
@@ -422,6 +566,21 @@ public class Api {
 			this.names = new String[] {name};
 			this.selected = selected;
 		}
+
+		/**
+		 * Unparcel an instance of this class
+		 * @param parcel
+		 */
+		private DroidApp(Parcel parcel) {
+			uid = parcel.readInt();
+
+			int namesLen = parcel.readInt();
+			names = new String[namesLen];
+			parcel.readStringArray(names);
+
+			selected = parcel.readInt() == 1;
+			appinfo = parcel.readParcelable(ApplicationInfo.class.getClassLoader());
+		}
 		/**
 		 * Screen representation of this application
 		 */
@@ -439,6 +598,32 @@ public class Api {
 			}
 			return tostr;
 		}
+
+		@Override
+		public int describeContents() {
+			return 0;
+		}
+
+		@Override
+		public void writeToParcel(Parcel parcel, int flags) {
+			parcel.writeInt(uid);
+			parcel.writeInt(names.length);
+			parcel.writeStringArray(names);
+			parcel.writeInt(selected ? 1 : 0);
+			parcel.writeParcelable(appinfo, flags);
+		}
+
+		public static final Creator<DroidApp> CREATOR = new Creator<DroidApp>() {
+			@Override
+			public DroidApp createFromParcel(Parcel parcel) {
+				return new DroidApp(parcel);
+			}
+
+			@Override
+			public DroidApp[] newArray(int size) {
+				return new DroidApp[size];
+			}
+		};
 	}
 
 	/**

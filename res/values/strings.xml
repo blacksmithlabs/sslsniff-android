@@ -5,4 +5,6 @@
     <string name="working">Working...</string>
     <string name="reading_apps">Reading installed applications</string>
     <string name="toast_bin_installed">sslsniff: Binary files installed!</string>
+
+    <string name="log_no_options">Options could not be found for log view</string>
 </resources>

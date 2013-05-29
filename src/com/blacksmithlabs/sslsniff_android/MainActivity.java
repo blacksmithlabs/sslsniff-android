@@ -2,6 +2,7 @@ package com.blacksmithlabs.sslsniff_android;
 
 import android.app.Activity;
 import android.app.ProgressDialog;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.Resources;
 import android.os.AsyncTask;
@@ -39,6 +40,15 @@ public class MainActivity extends Activity implements AdapterView.OnItemClickLis
 	@Override
 	protected void onResume() {
 		super.onResume();
+		if (Api.isEnabled(this)) {
+			LogActivity.LogOptions options = Api.restoreLogOptions(this);
+			if (options.app != null) {
+				startLog(options);
+				finish();
+				return;
+			}
+		}
+
 		if (this.listview == null) {
 			this.listview = (ListView) this.findViewById(R.id.listview);
 			this.listview.setOnItemClickListener(this);
@@ -59,14 +69,26 @@ public class MainActivity extends Activity implements AdapterView.OnItemClickLis
 		// TODO determine if running and update mode accordingly
 	}
 
+	protected void startLog(LogActivity.LogOptions options) {
+		Intent intent = new Intent(this, LogActivity.class);
+		intent.putExtra(LogActivity.OPTIONS_EXTRA, options);
+		startActivity(intent);
+	}
+
 	@Override
 	public void onItemClick(AdapterView<?> adapterView, View view, int i, long l) {
 		view.setSelected(true);
 
-		// TODO launch the log activity with the default options
-
 		ListEntry entry = (ListEntry)view.getTag();
-		Log.e("sslsniff-android", "Item Clicked: " + entry.app.toString());
+
+		LogActivity.LogOptions options = new LogActivity.LogOptions();
+		options.app = entry.app;
+		options.mode = LogActivity.SniffMode.AUTHORITY;
+		options.certInfo = null; // default cert
+
+		Log.d("sslsniff-android", "Sniffing App: " + entry.app.toString());
+
+		startLog(options);
 	}
 
 	@Override
