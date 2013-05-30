@@ -34,7 +34,7 @@ public class MainActivity extends Activity implements AdapterView.OnItemClickLis
 		}
 
 		setContentView(R.layout.main);
-		Api.assertBinaries(this, true);
+		Api.assertDependencies(this, true);
 	}
 
 	@Override
@@ -85,6 +85,7 @@ public class MainActivity extends Activity implements AdapterView.OnItemClickLis
 		options.app = entry.app;
 		options.mode = LogActivity.SniffMode.AUTHORITY;
 		options.certInfo = null; // default cert
+		options.logFile = null; // default file
 
 		Log.d("sslsniff-android", "Sniffing App: " + entry.app.toString());
 

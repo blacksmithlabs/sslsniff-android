@@ -6,12 +6,15 @@ import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.graphics.drawable.Drawable;
+import android.os.Environment;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.Log;
 import android.widget.Toast;
 
 import java.io.*;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
 import java.util.*;
 
 /**
@@ -66,7 +69,7 @@ public class Api {
 	 * @return script header
 	 */
 	private static String scriptHeader(Context ctx) {
-		final String dir = ctx.getDir("bin",0).getAbsolutePath();
+		final String dir = ctx.getDir("bin",Context.MODE_PRIVATE).getAbsolutePath();
 		final String myiptables = dir + "/iptables_armv7";
 		final String mysslsniff = dir + "/sslsniff_armv7";
 		return  "IPTABLES=iptables\n" +
@@ -108,14 +111,23 @@ public class Api {
 	}
 
 	/**
+	 * Get the pid file object we are going to use
+	 * @param ctx
+	 * @return the File object for the pid file
+	 */
+	private static File getPIDFile(Context ctx) {
+		return new File(ctx.getDir("run",Context.MODE_PRIVATE), "sslsniff_armv7.pid");
+	}
+
+	/**
 	 * Get the pid of the sslsniff app that we've been running
 	 * @param ctx context
 	 * @return The PID. Empty string if not found.
 	 */
-	private static String getSnifferPID(Context ctx) {
+	public static String getSnifferPID(Context ctx) {
 		String pid = "";
 
-		final File pidFile = new File(ctx.getDir("run",Context.MODE_PRIVATE), "sslsniff_armv7.pid");
+		final File pidFile = getPIDFile(ctx);
 		if (pidFile.exists() && pidFile.length() > 0) {
 			try {
 				BufferedReader reader = new BufferedReader(new FileReader(pidFile));
@@ -339,29 +351,38 @@ public class Api {
 
 	/**
 	 * Asserts that the binary files are installed in the cache directory.
+	 *
 	 * @param ctx context
 	 * @param showErrors indicates if errors should be alerted
 	 * @return false if binary files could not be installed
 	 */
-	public static boolean assertBinaries(Context ctx, boolean showErrors) {
+	public static boolean assertDependencies(Context ctx, boolean showErrors) {
 		boolean changed = false;
 		try {
+			File binDir = ctx.getDir("bin", Context.MODE_PRIVATE);
+
 			// Check sslsniff
-			File file = new File(ctx.getDir("bin",0), "sslsniff_armv7");
+			File file = new File(binDir, "sslsniff_armv7");
 			if (!file.exists() || file.length() != 6123164) {
 				copyRawFile(ctx, R.raw.sslsniff_armv7, file, "755");
 				changed = true;
 			}
 			// Check iptables
-			file = new File(ctx.getDir("bin",0), "iptables_armv7");
+			file = new File(binDir, "iptables_armv7");
 			if (!file.exists() || file.length() != 1005680) {
 				copyRawFile(ctx, R.raw.iptables_armv7, file, "755");
 				changed = true;
 			}
 			// Check busybox
-			file = new File(ctx.getDir("bin",0), "busybox_g1");
+			file = new File(binDir, "busybox_g1");
 			if (!file.exists()) {
 				copyRawFile(ctx, R.raw.busybox_g1, file, "755");
+				changed = true;
+			}
+			// Check certs
+			file = new File(binDir, "wildcard_cert.pem");
+			if (!file.exists()) {
+				copyRawFile(ctx, R.raw.wildcard_cert, file, "444");
 				changed = true;
 			}
 
@@ -376,18 +397,35 @@ public class Api {
 		return true;
 	}
 
+	public static File getDefaultExternalStorageDir(Context ctx) {
+		File dir;
+		if (Environment.getExternalStorageState().equals(Environment.MEDIA_MOUNTED)) {
+			dir = new File(Environment.getExternalStorageDirectory(), "sslsniff-android");
+		} else {
+			dir = ctx.getFilesDir();
+		}
+
+		if (!dir.exists()) {
+			if (!dir.mkdirs()) {
+				dir = ctx.getDir("run", Context.MODE_PRIVATE);
+			}
+		}
+
+		return dir;
+	}
+
 	/**
-	 * Purge and re-add all the rules (internal implementation)
+	 * Purge and re-add all the rules, the launch ssl sniff
 	 * @param ctx application context
 	 * @param options the options for our logging
 	 * @param showErrors indicates if errors should be altered
 	 * @return if the rules were applied successfully
 	 */
-	public static boolean applyIPTablesRules(Context ctx, LogActivity.LogOptions options, boolean showErrors) {
+	public static boolean SSLMITM(Context ctx, LogActivity.LogOptions options, boolean showErrors) {
 		if (ctx == null) {
 			return false;
 		}
-		assertBinaries(ctx, showErrors);
+		assertDependencies(ctx, showErrors);
 
 		final StringBuilder script = new StringBuilder();
 		try {
@@ -408,8 +446,38 @@ public class Api {
 					.append(" -m owner --uid-owner ").append(options.app.appinfo.uid)
 					.append(" --dport ").append(port)
 					.append(" --to-ports ").append(destinationPort)
-					.append(" || exit\n");
+					.append(" || exit 5\n");
 			}
+
+			// Process the values we'll need for our arguments
+			String mode = options.mode == LogActivity.SniffMode.AUTHORITY ? "-a" : "-t";
+
+			String certPath = options.certInfo;
+			if (certPath == null || certPath.isEmpty()) {
+				final String dir = ctx.getDir("bin",Context.MODE_PRIVATE).getAbsolutePath();
+				certPath = dir + "/wildcard_cert.pem";
+
+				mode = "-a";
+			}
+
+			String logFile = options.logFile;
+			if (logFile == null || logFile.isEmpty()) {
+				final DateFormat df = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSZ");
+				final String date = df.format(new Date());
+				logFile = new File(getDefaultExternalStorageDir(ctx), date + ".pk.log").getAbsolutePath();
+			}
+
+			final String pidFilePath = getPIDFile(ctx).getAbsolutePath();
+
+			// Start SSL Sniff
+			script.append("\n#Start sslsniff\n")
+				.append("$SSLSNIFF ")
+					.append(mode)
+					.append(" -c ").append(certPath)
+					.append(" -s ").append(destinationPort)
+					.append(" -w ").append(logFile)
+					.append(" &\n")
+				.append("echo $! > ").append(pidFilePath);
 
 			final StringBuilder res = new StringBuilder();
 			int code = runScriptAsRoot(ctx, script.toString(), res);

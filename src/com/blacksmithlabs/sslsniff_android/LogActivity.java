@@ -5,6 +5,7 @@ import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.util.Log;
 import android.view.WindowManager;
 import android.widget.TextView;
 
@@ -33,15 +34,23 @@ public class LogActivity extends Activity {
 			options = savedInstanceState.getParcelable(OPTIONS_EXTRA);
 		}
 
+		// TODO this seems to take a bit of time, move to onCreate?
+		TextView txt = (TextView)findViewById(R.id.logtext);
 		if (options == null) {
-			TextView txt = (TextView)findViewById(R.id.logtext);
 			txt.setText(R.string.log_no_options);
 		} else {
 			Api.saveLogOptions(this, options);
+			// Begin our MITM attack
+			Api.SSLMITM(this, options, true);
 
-			Api.applyIPTablesRules(this, options, true);
-			// TODO call API to set up and start ssl-sniff for these rules
-			// TODO start log tailing service (or something)
+			String pid = Api.getSnifferPID(this);
+			if (pid == null || pid.isEmpty()) {
+				txt.setText(R.string.error_starting_sslsniff);
+			} else {
+				Api.alert(this, "sslsniff-android started as pid " + pid);
+				Log.d("sslsniff-android", "pid: " + pid);
+				// TODO start log tailing service (or something)
+			}
 		}
 	}
 
