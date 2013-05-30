@@ -104,7 +104,7 @@ public class Api {
 				"	IPTABLES="+myiptables+"\n" +
 				"fi\n" +
 				"# Try to find sslsniff\n" +
-				"if " + mysslsniff + " --help >/dev/null 2>/dev/null; then \n" +
+				"if [ -f " + mysslsniff + " ]; then \n" +
 				"    SSLSNIFF="+mysslsniff+"\n" +
 				"fi\n" +
 				"\n";
@@ -398,20 +398,7 @@ public class Api {
 	}
 
 	public static File getDefaultExternalStorageDir(Context ctx) {
-		File dir;
-		if (Environment.getExternalStorageState().equals(Environment.MEDIA_MOUNTED)) {
-			dir = new File(Environment.getExternalStorageDirectory(), "sslsniff-android");
-		} else {
-			dir = ctx.getFilesDir();
-		}
-
-		if (!dir.exists()) {
-			if (!dir.mkdirs()) {
-				dir = ctx.getDir("run", Context.MODE_PRIVATE);
-			}
-		}
-
-		return dir;
+		return ctx.getFilesDir();
 	}
 
 	/**
@@ -460,14 +447,22 @@ public class Api {
 				mode = "-a";
 			}
 
+			final DateFormat df = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSZ");
+			final String date = df.format(new Date());
+
 			String logFile = options.logFile;
 			if (logFile == null || logFile.isEmpty()) {
-				final DateFormat df = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSZ");
-				final String date = df.format(new Date());
 				logFile = new File(getDefaultExternalStorageDir(ctx), date + ".pk.log").getAbsolutePath();
 			}
 
 			final String pidFilePath = getPIDFile(ctx).getAbsolutePath();
+			final String stdoutFilePath = new File(ctx.getDir("run", Context.MODE_PRIVATE), date + ".out").getAbsolutePath();
+
+			// Kill any previously running version
+			script.append("\n#Kill existing sslsniff\n")
+				.append("if [ -f ").append(pidFilePath).append(" ]; then\n")
+					.append("    kill `cat ").append(pidFilePath).append("`\n")
+				.append("fi\n");
 
 			// Start SSL Sniff
 			script.append("\n#Start sslsniff\n")
@@ -476,6 +471,8 @@ public class Api {
 					.append(" -c ").append(certPath)
 					.append(" -s ").append(destinationPort)
 					.append(" -w ").append(logFile)
+					.append(" >").append(stdoutFilePath)
+					.append(" 2>").append(stdoutFilePath)
 					.append(" &\n")
 				.append("echo $! > ").append(pidFilePath);
 
