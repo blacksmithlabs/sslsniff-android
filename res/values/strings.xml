@@ -2,10 +2,17 @@
 <resources>
     <string name="app_name">sslsniff Android</string>
 
+    <string name="root_required">Root access is required</string>
+
     <string name="working">Working...</string>
     <string name="reading_apps">Reading installed applications</string>
+    <string name="error_reading_apps">Error reading installed applications</string>
     <string name="toast_bin_installed">sslsniff: Dependencies installed!</string>
 
     <string name="log_no_options">Options could not be found for log view</string>
+    <string name="starting_mitm">Starting sslsniff</string>
+    <string name="exit_log_title">Kill the logger?</string>
+    <string name="exit_log_prompt">Are you sure you want to exit the log view? This will kill the logger.</string>
+
     <string name="error_starting_sslsniff">Could not start SSL Sniff</string>
 </resources>

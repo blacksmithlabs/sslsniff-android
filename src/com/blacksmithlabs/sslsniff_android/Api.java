@@ -134,6 +134,7 @@ public class Api {
 				pid = reader.readLine().trim();
 			} catch (Exception ex) {
 				// Well, dang...
+				Log.e("sslsniff", "Error reading PID file: " + ex);
 			}
 		}
 
@@ -192,12 +193,14 @@ public class Api {
 	 * @return
 	 */
 	public static LogActivity.LogOptions restoreLogOptions(Context ctx) {
-		LogActivity.LogOptions options = new LogActivity.LogOptions();
+		LogActivity.LogOptions options = null;
 
 		final SharedPreferences prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
 		String strUid = prefs.getString(PREF_SELECTED_UID, "");
 		if (!strUid.isEmpty()) {
 			try {
+				options = new LogActivity.LogOptions();
+
 				final int uid = Integer.parseInt(strUid);
 				// Get the actual app associated with the uid
 				for (DroidApp app : getApps(ctx)) {
@@ -380,9 +383,9 @@ public class Api {
 				changed = true;
 			}
 			// Check certs
-			file = new File(binDir, "wildcard_cert.pem");
+			file = new File(binDir, "wildcard_ca.pem");
 			if (!file.exists()) {
-				copyRawFile(ctx, R.raw.wildcard_cert, file, "444");
+				copyRawFile(ctx, R.raw.wildcard_ca, file, "444");
 				changed = true;
 			}
 
@@ -397,8 +400,114 @@ public class Api {
 		return true;
 	}
 
+	/**
+	 * Get the directory to use for external storage
+	 * @param ctx
+	 * @return
+	 */
 	public static File getDefaultExternalStorageDir(Context ctx) {
 		return ctx.getFilesDir();
+	}
+
+	/**
+	 * Create a file if it doesn't already exist
+	 * @param filePath
+	 * @return
+	 */
+	public static boolean createFileIfNotExists(String filePath) {
+		final File file = new File(filePath);
+		if (!file.exists()) {
+			try {
+				if (!file.createNewFile()) {
+					return false;
+				}
+			} catch (IOException e) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/**
+	 * The application UID cache.
+	 * @use getApplicationUID
+	 */
+	private static Integer applicationUID = null;
+	/**
+	 * Get the UID of the application related to the context
+	 * Be smart about using this, because it caches the value
+	 * @param ctx
+	 * @return
+	 */
+	protected static Integer getApplicationUID(Context ctx) {
+		if (applicationUID == null) {
+			final PackageManager pm = ctx.getPackageManager();
+			try {
+				final ApplicationInfo ai = pm.getApplicationInfo(ctx.getPackageName(), 0);
+				applicationUID = ai.uid;
+			} catch (final PackageManager.NameNotFoundException e) {
+				// Drat
+			}
+		}
+
+		return applicationUID;
+	}
+
+	/**
+	 * Kill the MITM attack
+	 * @param ctx
+	 * @param showErrors
+	 */
+	public static boolean killMITM(Context ctx, boolean showErrors) {
+		if (ctx == null) {
+			return false;
+		}
+
+		final StringBuilder script = new StringBuilder();
+		try {
+			script.append(scriptHeader(ctx))
+				.append("$IPTABLES --version || exit 1\n")
+				.append("\n# Flush rules, if they exist\n\n")
+				.append("$IPTABLES -t nat -L sslsniff >/dev/null 2>/dev/null && ($IPTABLES -t nat -F sslsniff || exit 2)\n");
+
+			final String pidFilePath = getPIDFile(ctx).getAbsolutePath();
+
+			// Kill the currently running background task
+			script.append("\n#Kill existing sslsniff\n\n")
+					.append("if [ -f ").append(pidFilePath).append(" ]; then\n")
+					.append("  PID=`cat ").append(pidFilePath).append("`\n")
+					.append("  if [ $PID ]; then\n")
+					.append("    kill `cat ").append(pidFilePath).append("`\n")
+					.append("  fi\n")
+					.append("  rm ").append(pidFilePath).append("\n")
+					.append("fi\n");
+
+			final StringBuilder res = new StringBuilder();
+			int code = runScriptAsRoot(ctx, script.toString(), res);
+			if (showErrors && code != 0) {
+				String msg = res.toString();
+				Log.e("sslsniff", msg);
+				// Remove unnecessary message from output
+				String[] unhelpfulMsgs = new String[] {
+						"\nTry `iptables -h' or 'iptables --help' for more information.",
+						"\nprotoent* getprotobyname(char const*)(3) is not implemented on Android",
+				};
+				for (String unhelpful : unhelpfulMsgs) {
+					if (msg.indexOf(unhelpful) != -1) {
+						msg = msg.replace(unhelpful, "");
+					}
+				}
+				alert(ctx, "Error applying iptables rules. Exit code: " + code + "\n\n" + msg.trim());
+			} else {
+				return true;
+			}
+
+		} catch (Exception e) {
+			if (showErrors) {
+				alert(ctx, "Error killing MITM: " + e);
+			}
+		}
+		return false;
 	}
 
 	/**
@@ -425,6 +534,10 @@ public class Api {
 				.append("\n# Flush existing rules\n\n")
 				.append("$IPTABLES -t nat -F sslsniff || exit 4\n");
 
+			// Enable port forwarding
+			script.append("\n# Enable port forwarding\n\n")
+				.append("echo 1 > /proc/sys/net/ipv4/ip_forward\n");
+
 			// Filter the desired ports
 			script.append("\n# Filtering rules\n\n");
 			int destinationPort = 8443;
@@ -442,7 +555,8 @@ public class Api {
 			String certPath = options.certInfo;
 			if (certPath == null || certPath.isEmpty()) {
 				final String dir = ctx.getDir("bin",Context.MODE_PRIVATE).getAbsolutePath();
-				certPath = dir + "/wildcard_cert.pem";
+				certPath = dir + "/wildcard_ca.pem";
+				options.certInfo = certPath;
 
 				mode = "-a";
 			}
@@ -453,19 +567,34 @@ public class Api {
 			String logFile = options.logFile;
 			if (logFile == null || logFile.isEmpty()) {
 				logFile = new File(getDefaultExternalStorageDir(ctx), date + ".pk.log").getAbsolutePath();
+				options.logFile = logFile;
 			}
+			createFileIfNotExists(logFile);
+
+			String stdoutFilePath = options.outputFile;
+			if (stdoutFilePath == null || stdoutFilePath.isEmpty()) {
+				stdoutFilePath = new File(ctx.getDir("run", Context.MODE_PRIVATE), date + ".out").getAbsolutePath();
+				options.outputFile = stdoutFilePath;
+			}
+			createFileIfNotExists(stdoutFilePath);
 
 			final String pidFilePath = getPIDFile(ctx).getAbsolutePath();
-			final String stdoutFilePath = new File(ctx.getDir("run", Context.MODE_PRIVATE), date + ".out").getAbsolutePath();
 
 			// Kill any previously running version
-			script.append("\n#Kill existing sslsniff\n")
+			script.append("\n#Kill existing sslsniff\n\n")
 				.append("if [ -f ").append(pidFilePath).append(" ]; then\n")
+					.append("  PID=`cat ").append(pidFilePath).append("`\n")
+					.append("  if [ $PID ]; then\n")
 					.append("    kill `cat ").append(pidFilePath).append("`\n")
+					.append("  fi\n")
+					.append("  rm ").append(pidFilePath).append("\n")
 				.append("fi\n");
 
+			// Recreate it if necessary
+			createFileIfNotExists(pidFilePath);
+
 			// Start SSL Sniff
-			script.append("\n#Start sslsniff\n")
+			script.append("\n#Start sslsniff\n\n")
 				.append("$SSLSNIFF ")
 					.append(mode)
 					.append(" -c ").append(certPath)
@@ -474,7 +603,24 @@ public class Api {
 					.append(" >").append(stdoutFilePath)
 					.append(" 2>").append(stdoutFilePath)
 					.append(" &\n")
-				.append("echo $! > ").append(pidFilePath);
+				.append("echo $! > ").append(pidFilePath).append("\n");
+
+			// Permission everything so it is readable
+			script.append("\n#Update permissions\n\n");
+
+			Integer appUid = getApplicationUID(ctx);
+			if (appUid != null) {
+				script.append("chown ")
+					.append(appUid).append(":").append(appUid)
+					.append(" ").append(logFile)
+					.append(" ").append(stdoutFilePath)
+					.append(" ").append(pidFilePath)
+					.append("\n");
+			}
+
+			script.append("chmod 644 ").append(logFile).append("\n")
+				.append("chmod 644 ").append(stdoutFilePath).append("\n")
+				.append("chmod 644 ").append(pidFilePath).append("\n");
 
 			final StringBuilder res = new StringBuilder();
 			int code = runScriptAsRoot(ctx, script.toString(), res);
@@ -498,7 +644,7 @@ public class Api {
 
 		} catch (Exception e) {
 			if (showErrors) {
-				alert(ctx, "Error setting up iptables for sslsniff: " + e);
+				alert(ctx, "Error setting up MITM: " + e);
 			}
 		}
 		return false;
@@ -542,6 +688,10 @@ public class Api {
 				app = map.get(apInfo.uid);
 				// Filter applications which are not allowed to access the Internet
 				if (app == null && PackageManager.PERMISSION_GRANTED != pkgManager.checkPermission(android.Manifest.permission.INTERNET, apInfo.packageName)) {
+					continue;
+				}
+				// We're not going to allow the infinite loop of filtering our own traffic
+				if (apInfo.packageName.equals(ctx.getPackageName())) {
 					continue;
 				}
 
@@ -598,7 +748,8 @@ public class Api {
 			applications = map.values().toArray(new DroidApp[map.size()]);
 			return applications;
 		} catch (Exception ex) {
-			alert(ctx, "error: " + ex);
+			Log.e("sslsniff", "Error: " + ex, ex);
+			//alert(ctx, "error: " + ex);
 		}
 		return null;
 	}

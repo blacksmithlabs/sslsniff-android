@@ -7,6 +7,8 @@ import android.content.pm.PackageManager;
 import android.content.res.Resources;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Message;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -40,9 +42,14 @@ public class MainActivity extends Activity implements AdapterView.OnItemClickLis
 	@Override
 	protected void onResume() {
 		super.onResume();
+		if (!Api.hasRootAccess(this, false)) {
+			Api.alert(this, getResources().getString(R.string.root_required));
+			finish();
+		}
+
 		if (Api.isEnabled(this)) {
 			LogActivity.LogOptions options = Api.restoreLogOptions(this);
-			if (options.app != null) {
+			if (options != null && options.app != null) {
 				startLog(options);
 				finish();
 				return;
@@ -62,7 +69,9 @@ public class MainActivity extends Activity implements AdapterView.OnItemClickLis
 	@Override
 	protected void onPause() {
 		super.onPause();
-		this.listview.setAdapter(null);
+		if (this.listview != null) {
+			this.listview.setAdapter(null);
+		}
 	}
 
 	private void refreshHeader() {
@@ -90,6 +99,7 @@ public class MainActivity extends Activity implements AdapterView.OnItemClickLis
 		Log.d("sslsniff-android", "Sniffing App: " + entry.app.toString());
 
 		startLog(options);
+		finish();
 	}
 
 	@Override
@@ -99,23 +109,18 @@ public class MainActivity extends Activity implements AdapterView.OnItemClickLis
 	}
 
 	private void showOrLoadApplications() {
-		final Resources res = getResources();
 		if (Api.applications == null) {
 			// Load the apps and display the progress dialog
+			final Resources res = getResources();
 			final ProgressDialog progress = ProgressDialog.show(this, res.getString(R.string.working), res.getString(R.string.reading_apps), true);
-			new AsyncTask<Void, Void, Void>() {
+			new Handler() {
 				@Override
-				protected void onPostExecute(Void aVoid) {
+				public void handleMessage(Message msg) {
+					Api.getApps(MainActivity.this);
 					try { progress.dismiss(); } catch (Exception ex) {}
 					showApplications();
 				}
-
-				@Override
-				protected Void doInBackground(Void... voids) {
-					Api.getApps(MainActivity.this);
-					return null;
-				}
-			}.execute();
+			}.sendEmptyMessageDelayed(0, 100);
 		} else {
 			// Already cached, just show the list
 			showApplications();
@@ -124,6 +129,10 @@ public class MainActivity extends Activity implements AdapterView.OnItemClickLis
 
 	private void showApplications() {
 		final Api.DroidApp[] apps = Api.getApps(this);
+		if (apps == null) {
+			Api.alert(this, getString(R.string.error_reading_apps));
+			return;
+		}
 		// Sort applications - selected first, then alphabetical
 		Arrays.sort(apps, new Comparator<Api.DroidApp>() {
 			@Override
