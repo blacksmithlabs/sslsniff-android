@@ -27,7 +27,6 @@
 
 #include "version.hpp"
 #include "SSLConnectionManager.hpp"
-#include "UpdateManager.hpp"
 #include "http/HttpConnectionManager.hpp"
 #include "certificate/TargetedCertificateManager.hpp"
 #include "certificate/AuthorityCertificateManager.hpp"
@@ -49,7 +48,6 @@ static void printUsage(char *command) {
 	  "-m <certificateChain>\tLocation of any intermediary certificates.\n"
 	  "-h <port>\t\tPort to listen on for HTTP interception (required for\n\t\t\tfingerprinting).\n"
 	  "-f <ff,ie,safari,opera,ios>\tOnly intercept requests from the specified browser(s).\n"
-	  "-d\t\t\tDeny OCSP requests for our certificates.\n"
 	  "-p\t\t\tOnly log HTTP POSTs\n"
 	  "-e <url>\t\tIntercept Mozilla Addon Updates\n"
 	  "-j <sha256>\t\tThe sha256sum value of the addon to inject\n\n", command);
@@ -73,7 +71,6 @@ static int parseArguments(int argc, char* argv[], Options &options) {
   int c;
   extern char *optarg;
 
-  options.denyOCSP       = false;
   options.postOnly       = false;
   options.targetedMode   = false;
   options.sslListenPort  = -1;
@@ -91,7 +88,6 @@ static int parseArguments(int argc, char* argv[], Options &options) {
     case 'm': options.chainLocation       = std::string(optarg); break;
     case 'p': options.postOnly            = true;                break;
     case 'u': options.updateLocation      = std::string(optarg); break;
-    case 'd': options.denyOCSP            = true;                break;
     case 'e': options.addonLocation       = std::string(optarg); break;
     case 'j': options.addonHash           = std::string(optarg); break;
     default:
@@ -133,10 +129,8 @@ int main(int argc, char* argv[]) {
   CertificateManager *certs = initializeCertificateManager(options);  
 
   FingerprintManager::getInstance()->setValidUserAgents(options.fingerprintList);
-  UpdateManager::getInstance()->initialize(options.updateLocation, options.addonLocation, options.addonHash);
 
-  HttpConnectionManager httpConnectionManager(io_service, options.httpListenPort, *certs,
-					      options.denyOCSP); 
+  HttpConnectionManager httpConnectionManager(io_service, options.httpListenPort);
   SSLConnectionManager sslConnectionManager(io_service, *certs, options.sslListenPort);
 
   std::cout << "sslsniff " << VERSION << " by Moxie Marlinspike running..." << std::endl;

@@ -45,14 +45,6 @@ private:
 		    ip::tcp::endpoint &destination,
 		    bool wildcardOK);
 
-  void interceptUpdate(boost::shared_ptr<ip::tcp::socket> clientSocket,
-		       ip::tcp::endpoint &destination,
-		       bool wildcardOK);
-
-  void interceptAddon(boost::shared_ptr<ip::tcp::socket> clientSocket,
-		      ip::tcp::endpoint &destination,
-		      bool wildcardOK);
-
   void interceptConnection(boost::shared_ptr<ip::tcp::socket> clientSocket,
 			   ip::tcp::endpoint destination,
 			   bool wildcardOK);

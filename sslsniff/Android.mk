@@ -8,9 +8,6 @@ TARGET_ARCH_ABI := armeabi-v7a
 
 LOCAL_MODULE := sslsniff
 LOCAL_SRC_FILES += sslsniff.cpp \
-	FirefoxAddonUpdater.cpp \
-	FirefoxUpdater.cpp \
-	UpdateManager.cpp \
 	Logger.cpp \
 	FingerprintManager.cpp \
 	SSLBridge.cpp \
@@ -21,10 +18,10 @@ LOCAL_SRC_FILES += sslsniff.cpp \
 	SessionCache.cpp \
 	util/Destination.cpp \
 	HTTPSBridge.cpp \
-	http/OCSPDenier.cpp \
 	http/HttpHeaders.cpp \
 	http/HttpConnectionManager.cpp \
 	http/HttpBridge.cpp
+
 
 LOCAL_C_INCLUDES += $(LOCAL_PATH)/../dependencies/include \
 	$(NDK_ROOT)/sources/cxx-stl/gnu-libstdc++/4.7/libs/armeabi-v7a/include \

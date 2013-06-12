@@ -17,12 +17,9 @@
  * USA
  */
 
-#include "FirefoxAddonUpdater.hpp"
-#include "FirefoxUpdater.hpp"
 #include "RawBridge.hpp"
 #include "HTTPSBridge.hpp"
 #include "SSLConnectionManager.hpp"
-#include "UpdateManager.hpp"
 #include "certificate/Certificate.hpp"
 #include "util/Destination.hpp"
 #include "FingerprintManager.hpp"
@@ -80,56 +77,6 @@ void SSLConnectionManager::shuttleConnection(boost::shared_ptr<ip::tcp::socket> 
   bridge->shuttle();
 }
 
-void SSLConnectionManager::interceptUpdate(boost::shared_ptr<ip::tcp::socket> clientSocket,
-					   ip::tcp::endpoint &destination,
-					   bool wildcardOK)
-{
-  try {
-    Logger::logError("Intercepting Update...");
-
-    FirefoxUpdater updater(clientSocket, destination);
-    updater.handshakeWithClient(certificateManager, wildcardOK);
-    updater.readMetaUpdateRequest();
-    updater.sendMetaUpdateResponse();
-    updater.close();
-  } catch (SSLConnectionError &error) {
-    std::stringstream errorStream;
-    errorStream << "Got exception: " << error.what();
-    std::string error = errorStream.str();    
-    Logger::logError(error);
-  } catch (FirefoxUpdateException &error) {
-    std::stringstream errorStream;
-    errorStream << "Got exception: " << error.what();
-    std::string error = errorStream.str();    
-    Logger::logError(error);
-  }
-}
-
-void SSLConnectionManager::interceptAddon(boost::shared_ptr<ip::tcp::socket> clientSocket,
-					  ip::tcp::endpoint &destination,
-					  bool wildcardOK)
-{
-  try {
-    Logger::logError("Intercepting addon..");
-
-    FirefoxAddonUpdater updater(clientSocket, destination);
-    updater.handshakeWithClient(certificateManager, wildcardOK);
-    updater.readMetaUpdateRequest();
-    updater.sendMetaUpdateResponse();
-    updater.close();
-  } catch (SSLConnectionError &error) {
-    std::stringstream errorStream;
-    errorStream << "Got exception: " << error.what();
-    std::string error = errorStream.str();    
-    Logger::logError(error);
-  } catch (FirefoxUpdateException &error) {
-    std::stringstream errorStream;
-    errorStream << "Got exception: " << error.what();
-    std::string error = errorStream.str();    
-    Logger::logError(error);
-  }
-}
-
 void SSLConnectionManager::interceptSSL(boost::shared_ptr<ip::tcp::socket> clientSocket,
 					ip::tcp::endpoint &destination,
 					bool wildcardOK)
@@ -162,11 +109,6 @@ void SSLConnectionManager::interceptConnection(boost::shared_ptr<ip::tcp::socket
 					       ip::tcp::endpoint destination,
 					       bool wildcardOK)
 {
-  if (UpdateManager::getInstance()->isUpdateTarget(destination))
-    interceptUpdate(clientSocket, destination, wildcardOK);
-  else if (UpdateManager::getInstance()->isAddonTarget(destination))
-    interceptAddon(clientSocket, destination, wildcardOK);
-  else
-    interceptSSL(clientSocket, destination, wildcardOK);
+  interceptSSL(clientSocket, destination, wildcardOK);
 }
 

@@ -32,20 +32,14 @@
 #include "../util/Destination.hpp"
 #include "../util/Util.hpp"
 #include "../FingerprintManager.hpp"
-#include "../FirefoxUpdater.hpp"
-#include "../UpdateManager.hpp"
 
 // Public
 
 using namespace boost::asio;
 
-HttpConnectionManager::HttpConnectionManager(io_service& io_service, int port,
-					     CertificateManager &certificateManager,
-					     bool denyOCSP) 
+HttpConnectionManager::HttpConnectionManager(io_service& io_service, int port)
   : acceptor_(io_service, ip::tcp::endpoint(ip::tcp::v4(), port)),
-    port_(port),
-    certificateManager(certificateManager),
-    denyOCSP(denyOCSP)
+    port_(port)
 {
   if (port != -1)
     acceptIncomingConnection();
@@ -84,10 +78,7 @@ void HttpConnectionManager::handleClientConnection(boost::shared_ptr<ip::tcp::so
     ip::tcp::endpoint destination;    
     Destination::getOriginalDestination(*socket, destination);
 
-    if (denyOCSP && certificateManager.isOCSPAddress(destination))
-      OCSPDenier::getInstance()->denyOCSPRequest(socket);
-    else
-      bridgeHttpRequest(socket, destination);
+    bridgeHttpRequest(socket, destination);
 
   } catch (IndeterminateDestinationException &exception) {    
     std::cerr << "Error: Could not determine original destination..." << std::endl;    

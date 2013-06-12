@@ -26,7 +26,6 @@
 #include <set>
 #include <vector>
 #include "HttpBridge.hpp"
-#include "OCSPDenier.hpp"
 
 #include "../certificate/CertificateManager.hpp"
 
@@ -37,9 +36,6 @@ class HttpConnectionManager {
  private:
   ip::tcp::acceptor acceptor_;
   int port_;
-
-  CertificateManager &certificateManager;
-  bool denyOCSP;
 
   void acceptIncomingConnection();
 
@@ -52,8 +48,7 @@ class HttpConnectionManager {
   void handleServerConnection(HttpBridge::ptr bridge, const boost::system::error_code& error);
 
  public:
-  HttpConnectionManager(io_service& io_service, int port, 
-			CertificateManager &certificateManager, bool denyOCSP);
+  HttpConnectionManager(io_service& io_service, int port);
 
 };
 

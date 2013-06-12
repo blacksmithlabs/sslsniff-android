@@ -11,7 +11,6 @@ typedef struct {
   std::string certificateLocation;
   std::string logLocation;
   std::string fingerprintList;
-  bool denyOCSP;
   bool postOnly;
   bool targetedMode;
   int sslListenPort;
