@@ -25,17 +25,15 @@
 
 class Logger {
 
+private:
+  static std::string toAsciiHex(const char* buf, int len);
+
 public:
   static void initialize(std::string &path, bool postOnly);
-  static void logFromServer(std::string &name, char *buf, int len);
+  static void logFromServer(std::string &name, char* buf, int len);
   static void logFromClient(std::string &name, char* buf, int len);
   static void logFromClient(std::string &name, HttpHeaders &headers);
   static void logError(std::string error);
-  static void logUpdateRequest(std::string &product, std::string &version, 
-			      std::string &buildId, std::string &buildTarget,
-			      std::string &locale, std::string &channel,
-			      std::string &filename);
-  static void logAddonUpdate(std::string &appId);
   static void logInit(std::string message);
 };
 

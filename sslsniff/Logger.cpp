@@ -18,10 +18,88 @@
  */
 
 #include "Logger.hpp"
+#include <boost/format.hpp>
 
 #include <log4cpp/Category.hh>
 #include <log4cpp/FileAppender.hh>
 #include <log4cpp/BasicLayout.hh>
+#include <sstream>
+
+std::string Logger::toAsciiHex(const char* buf, int len) {
+  std::stringstream ss;
+
+  int i, line_len;
+  int offset = 0;
+  int line_width = 16;
+  int remaining = len;
+  const char* ch;
+
+  if (len <= 0)
+    return "";
+
+  for ( ;; ) {
+    // Compute current line length
+    line_len = line_width % remaining;
+
+    // Print the offset
+    ss << (boost::format("%|05d|%1%") % offset) << "    ";
+
+    // Print the hex for the line
+    ch = buf + offset;
+    for (i=0; i<line_len; i++) {
+      ss << boost::format("%|02x|%1%") % *ch;
+      ch++;
+      // Print extra space after 4th byte for visual aid
+      if (i > 0 && i % 4 == 0) {
+        ss << " ";
+      }
+    }
+    // Fill in any extra space in the line with spaces
+    for (i=line_len; i<line_width; i++) {
+        ss << "   ";
+        // Print extra space after 4th byte for constant width
+        if (i > 0 && i % 4 == 0) {
+          ss << " ";
+        }
+    }
+    // Gap before printable chars
+    ss << "   ";
+
+    // Printable chars
+    ch = buf + offset;
+    for (i=0; i<line_len; i++) {
+      if (*ch > 0x20 && *ch < 0x7F) {
+        ss << (char)*ch;
+      } else {
+        ss << ".";
+      }
+      // Print extra space after 4th byte for visual aid
+      if (i > 0 && i % 4 == 0) {
+        ss << " ";
+      }
+      ch++;
+    }
+
+    // End of line
+    ss << "\n";
+
+    // If we have less than a line left, we're done
+    if (remaining < line_width) {
+      break;
+    }
+
+    // Compute remaining
+    remaining -= line_len;
+    if (remaining <= 0) {
+      break;
+    }
+
+    // Add to offset
+    offset += line_width;
+  }
+
+  return ss.str();
+}
 
 void Logger::initialize(std::string &path, bool postOnly) {
   log4cpp::Appender* app  = new log4cpp::FileAppender("FileAppender", path);
@@ -32,12 +110,14 @@ void Logger::initialize(std::string &path, bool postOnly) {
   
   sslsniff.setAdditivity(false);
   sslsniff.setAppender(app);
-  if (postOnly) sslsniff.setPriority(log4cpp::Priority::INFO);  
-  else          sslsniff.setPriority(log4cpp::Priority::DEBUG);
+  if (postOnly)
+    sslsniff.setPriority(log4cpp::Priority::INFO);
+  else
+    sslsniff.setPriority(log4cpp::Priority::DEBUG);
 }
 
 void Logger::logFromServer(std::string &name, char *buf, int len) {
-  std::string data(buf, len);
+  std::string data = toAsciiHex(buf, len);
   std::string message = "Read from Server (";
   message.append(name);
   message.append(") :\n");
@@ -47,7 +127,7 @@ void Logger::logFromServer(std::string &name, char *buf, int len) {
 }
 
 void Logger::logFromClient(std::string &name, char* buf, int len) {
-  std::string data(buf, len);
+  std::string data = toAsciiHex(buf, len);
   std::string message = "Read from Client (";
   message.append(name);
   message.append(") :\n");
@@ -65,29 +145,8 @@ void Logger::logFromClient(std::string &name, HttpHeaders &headers) {
   log4cpp::Category::getInstance("sslsniff").info(message);
 }
 
-void Logger::logUpdateRequest(std::string &product, std::string &version, 
-			      std::string &buildId, std::string &buildTarget,
-			      std::string &locale, std::string &channel,
-			      std::string &filename)
-{
-  std::string message = 
-    "Got update request:\n Product: " + product     + "\n" +
-    "Version: "                       + version     + "\n" +
-    "ID: "                            + buildId     + "\n" +
-    "Target: "                        + buildTarget + "\n" +
-    "Locale: "                        + locale      + "\n" +
-    "Channel: "                       + channel     + "\n" +
-    "Filename: "                      + filename;
-
-  log4cpp::Category::getInstance("sslsniff").info(message);
-}
-
 void Logger::logError(std::string error) {
   log4cpp::Category::getInstance("sslsniff").debug(error);
-}
-
-void Logger::logAddonUpdate(std::string &appId) {
-  log4cpp::Category::getInstance("sslsniff").info("Updating Firefox Extension: " +  appId);
 }
 
 void Logger::logInit(std::string message) {
