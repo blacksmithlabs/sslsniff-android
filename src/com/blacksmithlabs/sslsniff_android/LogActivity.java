@@ -3,13 +3,13 @@ package com.blacksmithlabs.sslsniff_android;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.ProgressDialog;
-import android.content.DialogInterface;
-import android.content.Intent;
+import android.content.*;
 import android.content.res.Resources;
 import android.os.*;
 import android.util.Log;
 import android.view.WindowManager;
 import android.widget.TextView;
+import com.blacksmithlabs.sslsniff_android.service.LogReader;
 
 /**
  * Created by brian on 5/27/13.
@@ -18,6 +18,9 @@ public class LogActivity extends Activity {
 	public static String OPTIONS_EXTRA = "com.blacksmithlabs.sslsniff_android.LogActivity.options";
 
 	private LogOptions options;
+
+	private LogReader.LogReaderBinder readerService;
+	private boolean tailingLogs = false;
 
 	public void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
@@ -101,14 +104,20 @@ public class LogActivity extends Activity {
 	 * The file paths can be found in the options
 	 */
 	protected void tailMITMLogs() {
-		// TODO start/verify log tailing service (or something)
-		// TODO refresh log display with most recent output
+		Intent serviceIntent = new Intent(this, LogReader.class);
+		bindService(serviceIntent, readerConnection, Context.BIND_AUTO_CREATE);
+		tailingLogs = true;
 	}
 
 	@Override
 	protected void onPause() {
 		if (isFinishing()) {
 			Api.killMITM(this, false);
+
+			if (tailingLogs) {
+				unbindService(readerConnection);
+				tailingLogs = false;
+			}
 		}
 		super.onPause();
 	}
@@ -134,6 +143,42 @@ public class LogActivity extends Activity {
 		prompt.setTitle(R.string.exit_log_title);
 		prompt.show();
 	}
+
+	private ServiceConnection readerConnection = new ServiceConnection() {
+		@Override
+		public void onServiceConnected(ComponentName componentName, IBinder iBinder) {
+			readerService = ((LogReader.LogReaderBinder)iBinder);
+		}
+
+		@Override
+		public void onServiceDisconnected(ComponentName componentName) {
+			readerService = null;
+		}
+
+		public void tailLog(String logFile) {
+			if (readerService != null) {
+				readerService.tailLog(logFile, new LogReader.LogReaderCallback() {
+					@Override
+					public void logMessage(String message) {
+						final TextView txt = (TextView)findViewById(R.id.logtext);
+						txt.append(message);
+					}
+
+					@Override
+					public void logClosed(String error) {
+						final TextView txt = (TextView)findViewById(R.id.logtext);
+						if (error != null && !error.isEmpty())
+							txt.append("ERROR: " + error);
+					}
+
+					@Override
+					public IBinder asBinder() {
+						return null;
+					}
+				});
+			}
+		}
+	};
 
 	/**
 	 * The different modes we can use to sniff. AUTHORITY is default.
