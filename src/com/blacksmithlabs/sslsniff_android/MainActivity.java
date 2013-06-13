@@ -89,6 +89,7 @@ public class MainActivity extends Activity implements AdapterView.OnItemClickLis
 		view.setSelected(true);
 
 		ListEntry entry = (ListEntry)view.getTag();
+		entry.app.selected = true;
 
 		LogActivity.LogOptions options = new LogActivity.LogOptions();
 		options.app = entry.app;

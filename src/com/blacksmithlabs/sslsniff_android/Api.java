@@ -618,9 +618,9 @@ public class Api {
 					.append("\n");
 			}
 
-			script.append("chmod 644 ").append(logFile).append("\n")
-				.append("chmod 644 ").append(stdoutFilePath).append("\n")
-				.append("chmod 644 ").append(pidFilePath).append("\n");
+			script.append("chmod 666 ").append(logFile).append("\n")
+				.append("chmod 666 ").append(stdoutFilePath).append("\n")
+				.append("chmod 666 ").append(pidFilePath).append("\n");
 
 			final StringBuilder res = new StringBuilder();
 			int code = runScriptAsRoot(ctx, script.toString(), res);

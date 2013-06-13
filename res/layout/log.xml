@@ -5,10 +5,19 @@
               android:layout_width="match_parent"
               android:layout_height="match_parent">
 
-    <TextView
-            android:layout_width="match_parent"
+    <ScrollView
             android:layout_height="match_parent"
-            android:textAppearance="?android:attr/textAppearanceMedium"
-            android:text="Log Text"
-            android:id="@+id/logtext" android:layout_gravity="center" android:enabled="true" android:focusable="true"/>
+            android:layout_width="match_parent">
+
+        <TextView
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:layout_gravity="center"
+                android:textAppearance="?android:attr/textAppearanceMedium"
+                android:id="@+id/logtext"
+                android:enabled="true"
+                android:focusable="true"
+                android:gravity="bottom"/>
+
+    </ScrollView>
 </LinearLayout>
