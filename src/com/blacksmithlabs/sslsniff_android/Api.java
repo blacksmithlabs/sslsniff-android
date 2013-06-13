@@ -366,7 +366,7 @@ public class Api {
 
 			// Check sslsniff
 			File file = new File(binDir, "sslsniff_armv7");
-			if (!file.exists() || file.length() != 6123164) {
+			if (!file.exists() || file.length() != 5535028) {
 				copyRawFile(ctx, R.raw.sslsniff_armv7, file, "755");
 				changed = true;
 			}
