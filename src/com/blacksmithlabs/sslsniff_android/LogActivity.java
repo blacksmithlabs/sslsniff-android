@@ -11,6 +11,8 @@ import android.view.WindowManager;
 import android.widget.TextView;
 import com.blacksmithlabs.sslsniff_android.service.LogReader;
 
+import java.io.FileDescriptor;
+
 /**
  * Created by brian on 5/27/13.
  */
@@ -19,8 +21,12 @@ public class LogActivity extends Activity {
 
 	private LogOptions options;
 
+	private StringBuilder logText;
+
 	private LogReader.LogReaderBinder readerService;
 	private boolean tailingLogs = false;
+
+	private TextView logTextView;
 
 	public void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
@@ -32,6 +38,7 @@ public class LogActivity extends Activity {
 		}
 
 		setContentView(R.layout.log);
+		logTextView = (TextView)findViewById(R.id.logtext);
 
 		if (options == null) {
 			if (savedInstanceState == null) {
@@ -41,8 +48,12 @@ public class LogActivity extends Activity {
 			}
 		}
 
-		if (options != null) {
+		if (options != null && savedInstanceState == null) {
 			Api.saveLogOptions(this, options);
+		}
+
+		if (logText == null) {
+			logText = new StringBuilder();
 		}
 	}
 
@@ -50,13 +61,68 @@ public class LogActivity extends Activity {
 	protected void onResume() {
 		super.onResume();
 
+		if (logText.length() > 0) {
+			final TextView txt = (TextView)findViewById(R.id.logtext);
+			txt.setText(logText.toString());
+		}
+
 		startMITM();
+	}
+
+	@Override
+	protected void onPause() {
+		if (tailingLogs) {
+			unbindService(readerConnection);
+			tailingLogs = false;
+		}
+		if (isFinishing()) {
+			Api.killMITM(this, false);
+			// TODO move this to persistent notification
+			stopService(new Intent(this, LogReader.class));
+		}
+		super.onPause();
+	}
+
+	@Override
+	protected void onSaveInstanceState(Bundle outState) {
+		super.onSaveInstanceState(outState);
+		outState.putParcelable(OPTIONS_EXTRA, options);
+	}
+
+	@Override
+	protected void onRestoreInstanceState(Bundle savedInstanceState) {
+		super.onRestoreInstanceState(savedInstanceState);
+		options = savedInstanceState.getParcelable(OPTIONS_EXTRA);
 	}
 
 	@Override
 	public void onBackPressed() {
 		promptExit();
 	}
+
+	protected void appendText(String append) {
+		appendText(append, true);
+	}
+
+	protected void appendText(String append, boolean newline) {
+		if (newline && !append.endsWith("\n")) {
+			append += "\n";
+		}
+
+		logTextView.append(append);
+		logText.append(append);
+	}
+
+	protected Handler logMessageHandler = new Handler() {
+		@Override
+		public void handleMessage(Message msg) {
+			String text = msg.getData().getString("LogText", "");
+			boolean newline = msg.getData().getBoolean("NewLine", false);
+			if (text != null && !text.isEmpty()) {
+				appendText(text, newline);
+			}
+		}
+	};
 
 	/**
 	 * Start the MITM attack, if it's already in progress, just tail the logs
@@ -70,12 +136,14 @@ public class LogActivity extends Activity {
 		if (options == null) {
 			txt.setText(R.string.log_no_options);
 		} else if (!Api.isEnabled(this)) {
+			final Resources res = getResources();
+
 			if (!Api.hasRootAccess(this, false)) {
-				txt.setText(R.string.root_required);
+				appendText(res.getString(R.string.root_required));
 				return;
 			}
 
-			final Resources res = getResources();
+
 			final ProgressDialog progress = ProgressDialog.show(this, res.getString(R.string.working), res.getString(R.string.starting_mitm), true);
 			new Handler() {
 				@Override
@@ -86,9 +154,9 @@ public class LogActivity extends Activity {
 
 					String pid = Api.getSnifferPID(LogActivity.this);
 					if (pid == null || pid.isEmpty()) {
-						txt.setText(R.string.error_starting_sslsniff);
+						appendText(res.getString(R.string.error_starting_sslsniff));
 					} else {
-						txt.setText("sslsniff-android started as pid " + pid + "\n");
+						appendText("sslsniff-android started as pid " + pid);
 						Log.d("sslsniff-android", "pid: " + pid);
 						tailMITMLogs();
 					}
@@ -104,22 +172,14 @@ public class LogActivity extends Activity {
 	 * The file paths can be found in the options
 	 */
 	protected void tailMITMLogs() {
-		Intent serviceIntent = new Intent(this, LogReader.class);
-		bindService(serviceIntent, readerConnection, Context.BIND_AUTO_CREATE);
-		tailingLogs = true;
-	}
+		if (!tailingLogs) {
+			startService(new Intent(this, LogReader.class));
 
-	@Override
-	protected void onPause() {
-		if (isFinishing()) {
-			Api.killMITM(this, false);
-
-			if (tailingLogs) {
-				unbindService(readerConnection);
-				tailingLogs = false;
-			}
+			Intent serviceIntent = new Intent(this, LogReader.class);
+			serviceIntent.setAction(LogReader.class.getName());
+			bindService(serviceIntent, readerConnection, Context.BIND_AUTO_CREATE);
+			tailingLogs = true;
 		}
-		super.onPause();
 	}
 
 	/**
@@ -144,10 +204,12 @@ public class LogActivity extends Activity {
 		prompt.show();
 	}
 
-	private ServiceConnection readerConnection = new ServiceConnection() {
+	private LogServiceConnection readerConnection = new LogServiceConnection();
+	private class LogServiceConnection implements ServiceConnection {
 		@Override
 		public void onServiceConnected(ComponentName componentName, IBinder iBinder) {
 			readerService = ((LogReader.LogReaderBinder)iBinder);
+			tailLog(options.logFile);
 		}
 
 		@Override
@@ -155,29 +217,37 @@ public class LogActivity extends Activity {
 			readerService = null;
 		}
 
-		public void tailLog(String logFile) {
-			if (readerService != null) {
-				readerService.tailLog(logFile, new LogReader.LogReaderCallback() {
-					@Override
-					public void logMessage(String message) {
-						final TextView txt = (TextView)findViewById(R.id.logtext);
-						txt.append(message);
-					}
+		protected void tailLog(String logFile) {
+			readerService.tailLog(logFile, new LogReader.LogReaderCallback() {
+				@Override
+				public void logMessage(String message) {
+					Message msg = new Message();
+					msg.getData().putString("LogText", message);
+					msg.getData().putBoolean("NewLine", true);
+					logMessageHandler.sendMessage(msg);
+				}
 
-					@Override
-					public void logClosed(String error) {
-						final TextView txt = (TextView)findViewById(R.id.logtext);
-						if (error != null && !error.isEmpty())
-							txt.append("ERROR: " + error);
+				@Override
+				public void logClosed(String error) {
+					if (error != null && !error.isEmpty()) {
+						Message msg = new Message();
+						msg.getData().putString("LogText", "ERROR: " + error);
+						msg.getData().putBoolean("NewLine", true);
+						logMessageHandler.sendMessage(msg);
 					}
+				}
 
-					@Override
-					public IBinder asBinder() {
-						return null;
-					}
-				});
-			}
+				@Override
+				public IBinder asBinder() {
+					return logBinder;
+				}
+			});
 		}
+	};
+
+	protected LogActivityBinder logBinder = new LogActivityBinder();
+	protected class LogActivityBinder extends Binder {
+
 	};
 
 	/**

@@ -3,6 +3,8 @@ package com.blacksmithlabs.sslsniff_android.service;
 import android.app.Service;
 import android.content.Intent;
 import android.os.*;
+import android.util.Log;
+import android.widget.Toast;
 
 import java.io.*;
 import java.util.*;
@@ -17,6 +19,11 @@ public class LogReader extends Service {
 		}
 
 		return null;
+	}
+
+	@Override
+	public int onStartCommand(Intent intent, int flags, int startId) {
+		return START_STICKY;
 	}
 
 	@Override

@@ -157,7 +157,6 @@ public class MainActivity extends Activity implements AdapterView.OnItemClickLis
 				ListEntry entry;
 				if (convertView == null || (entry = (ListEntry) convertView.getTag()) == null) {
 					convertView = inflater.inflate(R.layout.listitem, parent, false);
-					Log.d("sslsniff-android", ">> inflate(" + convertView + ")");
 					entry = new ListEntry();
 					entry.text = (TextView)convertView.findViewById(R.id.itemtext);
 					entry.icon = (ImageView)convertView.findViewById(R.id.itemicon);
