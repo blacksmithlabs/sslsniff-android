@@ -12,18 +12,19 @@ import android.widget.TextView;
 import com.blacksmithlabs.sslsniff_android.service.LogReader;
 
 import java.io.FileDescriptor;
+import java.util.List;
 
 /**
  * Created by brian on 5/27/13.
  */
 public class LogActivity extends Activity {
-	public static String OPTIONS_EXTRA = "com.blacksmithlabs.sslsniff_android.LogActivity.options";
+	final public static String OPTIONS_EXTRA = "com.blacksmithlabs.sslsniff_android.LogActivity.options";
+	final protected static String LAST_LOG_LINE = "com.blacksmithlabs.sslsniff_android.LogActivity.lastLogLine";
 
 	private LogOptions options;
 
-	private StringBuilder logText;
-
 	private LogReader.LogReaderBinder readerService;
+	private int lastLogLine = -1;
 	private boolean tailingLogs = false;
 
 	private TextView logTextView;
@@ -51,20 +52,11 @@ public class LogActivity extends Activity {
 		if (options != null && savedInstanceState == null) {
 			Api.saveLogOptions(this, options);
 		}
-
-		if (logText == null) {
-			logText = new StringBuilder();
-		}
 	}
 
 	@Override
 	protected void onResume() {
 		super.onResume();
-
-		if (logText.length() > 0) {
-			final TextView txt = (TextView)findViewById(R.id.logtext);
-			txt.setText(logText.toString());
-		}
 
 		startMITM();
 	}
@@ -87,12 +79,14 @@ public class LogActivity extends Activity {
 	protected void onSaveInstanceState(Bundle outState) {
 		super.onSaveInstanceState(outState);
 		outState.putParcelable(OPTIONS_EXTRA, options);
+		outState.putInt(LAST_LOG_LINE, lastLogLine);
 	}
 
 	@Override
 	protected void onRestoreInstanceState(Bundle savedInstanceState) {
 		super.onRestoreInstanceState(savedInstanceState);
 		options = savedInstanceState.getParcelable(OPTIONS_EXTRA);
+		lastLogLine = savedInstanceState.getInt(LAST_LOG_LINE, -1);
 	}
 
 	@Override
@@ -110,15 +104,24 @@ public class LogActivity extends Activity {
 		}
 
 		logTextView.append(append);
-		logText.append(append);
 	}
 
 	protected Handler logMessageHandler = new Handler() {
 		@Override
 		public void handleMessage(Message msg) {
-			String text = msg.getData().getString("LogText", "");
-			boolean newline = msg.getData().getBoolean("NewLine", false);
-			if (text != null && !text.isEmpty()) {
+			final Bundle msgData = msg.getData();
+			final String text = msgData.getString("LogText", "");
+			final boolean newline = msgData.getBoolean("NewLine", false);
+
+			final int lineNumber = msgData.getInt("LineNumber", 0);
+			final boolean force = msgData.getBoolean("Force", false);
+
+			if (text != null && !text.isEmpty() && (lineNumber > lastLogLine || force)) {
+				if (lineNumber - lastLogLine > 1) {
+					appendText("...", true);
+				}
+
+				lastLogLine = lineNumber;
 				appendText(text, newline);
 			}
 		}
@@ -152,7 +155,7 @@ public class LogActivity extends Activity {
 
 					try { progress.dismiss(); } catch (Exception ex) {}
 
-					String pid = Api.getSnifferPID(LogActivity.this);
+					final String pid = Api.getSnifferPID(LogActivity.this);
 					if (pid == null || pid.isEmpty()) {
 						appendText(res.getString(R.string.error_starting_sslsniff));
 					} else {
@@ -175,7 +178,7 @@ public class LogActivity extends Activity {
 		if (!tailingLogs) {
 			startService(new Intent(this, LogReader.class));
 
-			Intent serviceIntent = new Intent(this, LogReader.class);
+			final Intent serviceIntent = new Intent(this, LogReader.class);
 			serviceIntent.setAction(LogReader.class.getName());
 			bindService(serviceIntent, readerConnection, Context.BIND_AUTO_CREATE);
 			tailingLogs = true;
@@ -209,6 +212,12 @@ public class LogActivity extends Activity {
 		@Override
 		public void onServiceConnected(ComponentName componentName, IBinder iBinder) {
 			readerService = ((LogReader.LogReaderBinder)iBinder);
+
+			final List<LogReader.LogFileLine> catchup = readerService.getNewLines(options.logFile, lastLogLine);
+			for (LogReader.LogFileLine line : catchup) {
+				sendLogMessage(line);
+			}
+
 			tailLog(options.logFile);
 		}
 
@@ -217,22 +226,28 @@ public class LogActivity extends Activity {
 			readerService = null;
 		}
 
+		protected void sendLogMessage(LogReader.LogFileLine line) {
+			final Message msg = new Message();
+			msg.getData().putString("LogText", line.lineText);
+			msg.getData().putInt("LineNumber", line.lineNumber);
+			msg.getData().putBoolean("NewLine", true);
+			logMessageHandler.sendMessage(msg);
+		}
+
 		protected void tailLog(String logFile) {
 			readerService.tailLog(logFile, new LogReader.LogReaderCallback() {
 				@Override
-				public void logMessage(String message) {
-					Message msg = new Message();
-					msg.getData().putString("LogText", message);
-					msg.getData().putBoolean("NewLine", true);
-					logMessageHandler.sendMessage(msg);
+				public void logMessage(LogReader.LogFileLine line) {
+					sendLogMessage(line);
 				}
 
 				@Override
 				public void logClosed(String error) {
 					if (error != null && !error.isEmpty()) {
-						Message msg = new Message();
+						final Message msg = new Message();
 						msg.getData().putString("LogText", "ERROR: " + error);
 						msg.getData().putBoolean("NewLine", true);
+						msg.getData().putBoolean("Force", true);
 						logMessageHandler.sendMessage(msg);
 					}
 				}

@@ -48,7 +48,7 @@ public class LogReader extends Service {
 		if (readers.containsKey(logFile))
 			return;
 
-		logMessageBuffer.put(logFile, new ArrayList<String>());
+		logMessageBuffer.put(logFile, new LogFileBuffer(100));
 
 		LogReaderThread reader = new LogReaderThread(logFile);
 		reader.start();
@@ -56,9 +56,9 @@ public class LogReader extends Service {
 		readers.put(logFile, reader);
 	}
 
-	private HashMap<String, ArrayList<String>> logMessageBuffer = new HashMap<String, ArrayList<String>>();
+	private HashMap<String, LogFileBuffer> logMessageBuffer = new HashMap<String, LogFileBuffer>();
 
-	private void sendLogMessage(String logFile, String newMessage) {
+	private void sendLogMessage(String logFile, String newMessage, int lineNumber) {
 		final RemoteCallbackList<LogReaderCallback> callbacks = callbackHandlers.get(logFile);
 		if (callbacks == null)
 			return;
@@ -66,22 +66,15 @@ public class LogReader extends Service {
 		// Broadcast to all clients the new value
 		final int count = callbacks.beginBroadcast();
 
-		ArrayList<String> messages = logMessageBuffer.get(logFile);
-		messages.add(newMessage);
+		LogFileLine logFileLine = new LogFileLine(lineNumber, newMessage);
+
+		LogFileBuffer messages = logMessageBuffer.get(logFile);
+		messages.add(logFileLine);
 
 		if (count > 0) {
-			Iterator<String> it = messages.iterator();
-			String message = null;
-
-			while (it.hasNext()) {
-				message = it.next();
-
-				for (int i=0; i<count; i++) {
-					callbacks.getBroadcastItem(i).logMessage(message);
-				}
+			for (int i=0; i<count; i++) {
+				callbacks.getBroadcastItem(i).logMessage(logFileLine);
 			}
-
-			messages.clear();
 		}
 
 		callbacks.finishBroadcast();
@@ -104,18 +97,83 @@ public class LogReader extends Service {
 		callbacks.finishBroadcast();
 	}
 
-	public interface LogReaderCallback extends IInterface {
+	public static interface LogReaderCallback extends IInterface {
 		/**
 		 * Callback with the message most recently received from the log
-		 * @param message
+		 * @param line
 		 */
-		public void logMessage(String message);
+		public void logMessage(LogFileLine line);
 
 		/**
 		 * Callback for if an error is encountered or the log file is closed
 		 * @param error the optional error message if one was encountered
 		 */
 		public void logClosed(String error);
+	}
+
+	public static class LogFileLine {
+		final public int lineNumber;
+		final public String lineText;
+
+		public LogFileLine(int lineNumber, String lineText) {
+			this.lineNumber = lineNumber;
+			this.lineText = lineText;
+		}
+	}
+
+	private static class LogFileBuffer extends Vector<LogFileLine> {
+		final private int maxLines;
+		final private int bufferPadding = 50;
+
+		public LogFileBuffer(int maxLines) {
+			super(maxLines);
+			this.maxLines = maxLines > bufferPadding ? maxLines : bufferPadding*2;
+		}
+
+		protected void checkCapacity() {
+			if (size() > maxLines) {
+				removeRange(0, bufferPadding);
+			}
+		}
+
+		@Override
+		public void add(int location, LogFileLine object) {
+			super.add(location, object);
+			checkCapacity();
+		}
+
+		@Override
+		public boolean add(LogFileLine object) {
+			if (super.add(object)) {
+				checkCapacity();
+				return true;
+			}
+			return false;
+		}
+
+		@Override
+		public synchronized boolean addAll(Collection<? extends LogFileLine> collection) {
+			if (super.addAll(collection)) {
+				checkCapacity();
+				return true;
+			}
+			return false;
+		}
+
+		@Override
+		public synchronized boolean addAll(int location, Collection<? extends LogFileLine> collection) {
+			if (super.addAll(location, collection)) {
+				checkCapacity();
+				return true;
+			}
+			return false;
+		}
+
+		@Override
+		public synchronized void addElement(LogFileLine object) {
+			super.addElement(object);
+			checkCapacity();
+		}
 	}
 
 	private LogReaderBinder binder = new LogReaderBinder();
@@ -148,6 +206,21 @@ public class LogReader extends Service {
 			return true;
 		}
 
+		public List<LogFileLine> getNewLines(String logFile, int startLine) {
+			final List<LogFileLine> lines = new LinkedList<LogFileLine>();
+
+			final LogFileBuffer messages = logMessageBuffer.get(logFile);
+			if (messages != null) {
+				for (LogFileLine line : messages) {
+					if (line.lineNumber > startLine) {
+						lines.add(line);
+					}
+				}
+			}
+
+			return lines;
+		}
+
 		public boolean registerCallback(String logFile, LogReaderCallback cb) {
 			if (cb != null && callbackHandlers.containsKey(logFile)) {
 				callbackHandlers.get(logFile).register(cb);
@@ -159,9 +232,10 @@ public class LogReader extends Service {
 
 
 	private class LogReaderThread extends Thread {
-		private String logFile;
-		private BufferedReader reader;
+		final private String logFile;
+		final private BufferedReader reader;
 		private boolean keepReading = true;
+		private int lineNumber = -1;
 
 		public LogReaderThread(String logFile) throws FileNotFoundException {
 			this.logFile = logFile;
@@ -182,7 +256,8 @@ public class LogReader extends Service {
 						// Wait a bit and try again
 						Thread.sleep(1000);
 					} else {
-						sendLogMessage(logFile, line);
+						lineNumber++;
+						sendLogMessage(logFile, line, lineNumber);
 					}
 				} catch (InterruptedException e) {
 					// Continue on
