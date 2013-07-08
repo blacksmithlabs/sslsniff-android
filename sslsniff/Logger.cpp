@@ -39,7 +39,7 @@ std::string Logger::toAsciiHex(const char* buf, int len) {
 
   for ( ;; ) {
     // Compute current line length
-    line_len = line_width % remaining;
+    line_len = (remaining < line_width) ? remaining : line_width;
 
     // Print the offset
     ss << (boost::format("%|05d|%1%") % offset) << "    ";
@@ -50,17 +50,17 @@ std::string Logger::toAsciiHex(const char* buf, int len) {
       ss << boost::format("%|02x|%1%") % *ch;
       ch++;
       // Print extra space after 4th byte for visual aid
-      if (i > 0 && i % 4 == 0) {
+      if (i > 0 && (i+1) % 4 == 0) {
         ss << " ";
       }
     }
     // Fill in any extra space in the line with spaces
     for (i=line_len; i<line_width; i++) {
-        ss << "   ";
-        // Print extra space after 4th byte for constant width
-        if (i > 0 && i % 4 == 0) {
-          ss << " ";
-        }
+      ss << "   ";
+      // Print extra space after 4th byte for constant width
+      if (i > 0 && (i+1) % 4 == 0) {
+        ss << " ";
+      }
     }
     // Gap before printable chars
     ss << "   ";
@@ -74,7 +74,7 @@ std::string Logger::toAsciiHex(const char* buf, int len) {
         ss << ".";
       }
       // Print extra space after 4th byte for visual aid
-      if (i > 0 && i % 4 == 0) {
+      if (i > 0 && (i+1) % 4 == 0) {
         ss << " ";
       }
       ch++;
